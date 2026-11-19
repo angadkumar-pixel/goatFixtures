@@ -38,7 +38,7 @@
   //                      goat/matches/<id> {…, pos}   goat/done/<id>
   // Play order = matches sorted by `pos`. Moving a match changes only that match's pos, so a reorder
   // sends one small record instead of the whole order list.
-  const SKIP = { id: 1, time: 1, timeLocked: 1, shownAt: 1, pos: 1 };
+  const SKIP = { id: 1, time: 1, timeLocked: 1, shownAt: 1, pos: 1, contact: 1 }; // contact = phone numbers, kept private
   function strip(m) {
     const o = {};
     Object.keys(m).sort().forEach((k) => { if (!SKIP[k] && m[k] !== null && m[k] !== undefined) o[k] = m[k]; });

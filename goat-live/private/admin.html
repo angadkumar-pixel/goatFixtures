@@ -39,6 +39,11 @@
     </form>
     <button type="button" id="bulkBtn" class="bulk-btn">⇪ Bulk add (Excel / paste a list)</button>
     <details class="done"><summary>Completed <span id="doneCount">0</span></summary><ol id="doneList"></ol></details>
+    <details class="wa" id="waBox">
+      <summary>WhatsApp messages <span id="waBadge"></span></summary>
+      <div class="wa-head"><span id="waMode"></span><button type="button" id="waToggle"></button></div>
+      <ol class="wa-log" id="waLog"></ol>
+    </details>
   </section>
 </main>
 
@@ -50,6 +55,7 @@
   <div id="sheetActs" class="sheet-acts"></div>
   <form id="editForm" class="sheet-edit" autocomplete="off">
     <div class="two"><label>Player A<input name="a" maxlength="60" required></label><label>Player B<input name="b" maxlength="60" required></label></div>
+    <div class="two"><label>WhatsApp A<input name="phoneA" type="tel" maxlength="20" placeholder="98765 43210"></label><label>WhatsApp B<input name="phoneB" type="tel" maxlength="20" placeholder="98765 43210"></label></div>
     <div class="sheet-foot"><button type="button" class="danger" id="delBtn">Delete match</button><button type="submit" class="primary">Save changes</button></div>
   </form>
 </dialog>

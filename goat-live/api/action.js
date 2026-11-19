@@ -1,5 +1,6 @@
 // POST /api/action (admin only) → apply one change and save it to Firebase; every screen gets it pushed instantly.
 const fire = require('../lib/fire');
+const outbox = require('../lib/outbox');
 const core = require('../lib/core');
 const shared = require('../public/js/goat-shared');
 const auth = require('../lib/auth');
@@ -24,13 +25,15 @@ module.exports = async (req, res) => {
         return json(res, 200, { ok: true, rev: prev.rev });
       }
       const before = tree; // exact previous contents, for undo
+      const prevSt = JSON.parse(JSON.stringify(st));
       let result;
       try { result = core.apply(st, act, now); } catch (e) { return json(res, 400, { error: e.message }); }
       const keep = act.type !== 'replay';
       if (keep) st.canUndo = true;
       if (!(await fire.commit(tree, st, base))) continue;
-      if (keep) await fire.pushHistory(before);
-      return json(res, 200, { ok: true, rev: st.rev, ...(result || {}) });
+      await Promise.all([keep ? fire.pushHistory(before) : null, outbox.saveContacts(st)]);
+      const messages = await outbox.sendMessages(prevSt, st); // WhatsApp: "soon" / "you're next" / "moved later"
+      return json(res, 200, { ok: true, rev: st.rev, ...(result || {}), messages: messages.length });
     }
     json(res, 409, { error: 'Busy, please try again' });
   } catch (e) { fail(res, e); }

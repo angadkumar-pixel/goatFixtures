@@ -22,6 +22,7 @@
       const j = await r.json().catch(() => ({}));
       if (!r.ok) { toast(j.error || 'Something went wrong', { error: true }); return null; }
       if (j.state) GoatLive.push(j.state);
+      refreshAdminData(400);
       return j;
     } catch { toast('Cannot reach the server', { error: true }); return null; }
   }
@@ -111,7 +112,7 @@
         <button type="button" class="big start" data-act="start" ${why ? 'disabled' : ''}>● Start match now</button>`;
     }
     $('#sheetActs').innerHTML = h;
-    if (resetForm) { const f = $('#editForm'); f.a.value = m.a; f.b.value = m.b; }
+    if (resetForm) { const f = $('#editForm'), c = contacts[m.id] || {}; f.a.value = m.a; f.b.value = m.b; f.phoneA.value = c.a || ''; f.phoneB.value = c.b || ''; }
   }
   $('#sheetActs').addEventListener('click', async (e) => {
     const b = e.target.closest('button[data-act]'); if (!b) return;
@@ -156,7 +157,7 @@
     e.preventDefault();
     const m = find(openId); if (!m) return;
     const f = e.target;
-    if (await act('update', { id: m.id, a: f.a.value, b: f.b.value })) { toast('Saved'); sheet.close(); }
+    if (await act('update', { id: m.id, a: f.a.value, b: f.b.value, phoneA: f.phoneA.value, phoneB: f.phoneB.value })) { toast('Saved'); sheet.close(); }
   });
   $('#delBtn').onclick = () => {
     const m = find(openId); if (!m) return;
@@ -182,7 +183,7 @@
     b.disabled = !items.length;
     b.textContent = items.length ? `Add ${items.length} match${items.length > 1 ? 'es' : ''} to the queue` : 'Add';
     $('#bulkPreview').innerHTML = note ? `<p class="bad">${esc(note)}</p>`
-      : items.length ? `<span>${items.length} found, in this order:</span><ol>${items.map((x) => `<li>${esc(x.a)}<i>V</i>${esc(x.b)}</li>`).join('')}</ol>`
+      : items.length ? `<span>${items.length} found, in this order:</span><ol>${items.map((x) => `<li>${esc(x.a)}${x.phoneA ? '<span class="ph">📱' + esc(x.phoneA) + '</span>' : ''}<i>V</i>${esc(x.b)}${x.phoneB ? '<span class="ph">📱' + esc(x.phoneB) + '</span>' : ''}</li>`).join('')}</ol>`
       : '<span>Nothing recognised yet.</span>';
   }
   $('#bulkBtn').onclick = () => { $('#bulkText').value = ''; $('#bulkFile').value = ''; showBulk([]); bulkDlg.showModal(); };
@@ -297,7 +298,37 @@
   $('#undoBtn').onclick = () => act('undo');
   $('#logoutBtn').onclick = async () => { await fetch('/api/logout', { method: 'POST' }); location.href = '/admin'; };
 
-  GoatLive.connect((s) => { S = s; render(); }, (ok) => { $('#conn').className = 'conn ' + (ok ? 'ok' : 'bad'); });
+  // ── WhatsApp: phone numbers + message log (admin only) ──
+  let contacts = {}, wa = { provider: 'none', ready: false }, waLog = [], adminT = null;
+  function refreshAdminData(delay = 0) {
+    clearTimeout(adminT);
+    adminT = setTimeout(async () => {
+      try {
+        const r = await fetch('/api/admin-data', { cache: 'no-store' });
+        if (!r.ok) return;
+        const j = await r.json();
+        contacts = j.contacts || {}; wa = j.whatsapp || wa; waLog = j.log || [];
+        renderWA();
+      } catch {}
+    }, delay);
+  }
+  function renderWA() {
+    if (!S) return;
+    const on = !!(S.settings && S.settings.notify);
+    $('#waBadge').textContent = on ? (wa.ready ? 'ON' : 'ON · test mode') : 'OFF';
+    $('#waMode').textContent = wa.ready ? `Sending through ${wa.provider === 'meta' ? 'Meta' : 'Gupshup'}` : 'Test mode: nothing is sent until the Gupshup keys and templates are added in Vercel';
+    const t = $('#waToggle'); t.textContent = on ? 'Messages ON' : 'Messages OFF'; t.className = on ? 'on' : '';
+    const kind = { soon: 'Coming up', next: "You're next", later: 'Moved later' };
+    $('#waLog').innerHTML = waLog.length ? waLog.map((e) => {
+      const cls = /^sent/.test(e.status) ? 'ok' : /^test/.test(e.status) ? 'test' : 'bad';
+      return `<li><span class="st ${cls}">${esc(e.status)}</span><b>${esc(kind[e.kind] || e.kind)}</b> → ${esc(e.name)} ${esc(e.to || '')} · ${new Date(e.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}<p>${esc(e.text)}</p></li>`;
+    }).join('') : '<li>No messages yet.</li>';
+  }
+  $('#waToggle').onclick = () => act('settings', { settings: { notify: !(S.settings && S.settings.notify) } });
+  refreshAdminData();
+  setInterval(() => { if ($('#waBox').open) refreshAdminData(); }, 10000);
+
+  GoatLive.connect((s) => { S = s; render(); renderWA(); }, (ok) => { $('#conn').className = 'conn ' + (ok ? 'ok' : 'bad'); });
   setInterval(() => document.querySelectorAll('.cd[data-at]').forEach((el) => { el.textContent = fmtLeft(+el.dataset.at); }), 500);
   setInterval(() => { if (!sheet.open) render(); }, 30000);
 })();

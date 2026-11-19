@@ -7,6 +7,7 @@ const path = require('path');
 const crypto = require('crypto');
 const core = require('./lib/core');
 const auth = require('./lib/auth');
+const notify = require('./lib/notify');
 
 const PORT = Number(process.env.PORT) || 3000;
 const ROOT = __dirname;
@@ -35,8 +36,24 @@ function save() {
   fs.writeFileSync(tmp, JSON.stringify(state, null, 1));
   fs.renameSync(tmp, STATE_FILE);
 }
+// WhatsApp (same rules as online): who was told what, plus a log, kept in data/notify.json (private).
+const NOTIFY_FILE = path.join(DATA, 'notify.json');
+let outbox = { sent: {}, log: [] };
+try { outbox = Object.assign(outbox, JSON.parse(fs.readFileSync(NOTIFY_FILE, 'utf8'))); } catch {}
+const contactsOf = () => Object.fromEntries(state.matches.concat(state.done).filter((m) => m.contact).map((m) => [m.id, m.contact]));
+async function sendMessages(prev, next) {
+  if (!next.settings.notify) return;
+  try {
+    const { sentPatch, log } = await notify.run(prev, JSON.parse(JSON.stringify(next)), { contacts: contactsOf(), sent: outbox.sent, enabled: true });
+    Object.assign(outbox.sent, sentPatch);
+    outbox.log = log.reverse().concat(outbox.log).slice(0, 500);
+    fs.writeFileSync(NOTIFY_FILE, JSON.stringify(outbox));
+  } catch (e) { console.error('whatsapp', e); }
+}
+
 function dispatch(act) {
   let result = null;
+  const prevSt = core.normalize(JSON.parse(JSON.stringify(state)));
   if (act.type === 'undo') {
     const prev = history.pop();
     if (!prev) throw new Error('Nothing to undo');
@@ -53,6 +70,7 @@ function dispatch(act) {
   state.rev++;
   save();
   broadcast();
+  if (act.type !== 'undo') sendMessages(prevSt, state); // runs in the background, never blocks the board
   return result;
 }
 core.normalize(state); save();
@@ -139,6 +157,10 @@ http.createServer(async (req, res) => {
       fails.delete(ip);
       res.setHeader('Set-Cookie', auth.makeCookie(SECRET, false));
       return send(res, 200, { ok: true });
+    }
+    if (p === '/api/admin-data') {
+      if (!admin) return send(res, 401, { error: 'Not logged in' });
+      return send(res, 200, { contacts: contactsOf(), log: outbox.log.slice(0, 150), whatsapp: notify.status() });
     }
     if (p === '/api/logout') { res.setHeader('Set-Cookie', auth.clearCookie()); return send(res, 200, { ok: true }); }
     if (p === '/api/action' && req.method === 'POST') {

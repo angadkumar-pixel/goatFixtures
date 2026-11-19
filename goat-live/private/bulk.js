@@ -2,7 +2,7 @@
 // Exposes window.GoatBulk.parseText(text) / parseRows(rows) / readFile(file) → [{a, b}] in order.
 window.GoatBulk = (() => {
   const TIME = /^\d{1,2}[:.]\d{2}(\s*[ap]\.?m\.?)?$/i, NUM = /^#?\d+[.)]?$/;
-  const HEADER = /^(player|players|team|teams|name|names|side|a|b|player\s*[12ab]|team\s*[12ab]|match|no\.?|sr\.?|s\.?no\.?|#|time|court|vs|v)$/i;
+  const HEADER = /^(player|players|team|teams|name|names|side|a|b|p\s*[12ab]|player\s*[12ab]|team\s*[12ab]|match|no\.?|sr\.?|s\.?no\.?|#|time|court|vs|v|(phone|mobile|contact|whatsapp|number|ph\.?)\s*(no\.?|number)?\s*(of\s*)?(p|player|team)?\s*[12ab]?)$/i;
   // tidy a name: drop numbering like "1." / "Match 3:" / a leading "and"/"then"
   const tidy = (s) => String(s || '').replace(/\s+/g, ' ').trim()
     .replace(/^[^:]{0,24}:\s*/, '')                                            // "Today:", "Match 4:", "Court 2:"
@@ -10,10 +10,20 @@ window.GoatBulk = (() => {
     .replace(/[.;,]+$/, '').trim();
   const isHeader = (cells) => { const v = cells.map((c) => String(c || '').trim()).filter(Boolean); return v.length > 0 && v.every((c) => HEADER.test(c)); };
 
+  // a phone number: 98765 43210 / +91-98765-43210 / 919876543210 / Excel's 9.87654321E9
+  const isPhone = (s) => /^\d(\.\d+)?e\+?\d+$/i.test(s) || (/^[+\d\s\-().]+$/.test(s) && /^\d{10,13}$/.test(s.replace(/\D/g, '')));
+  // Row like: P1 | PhoneP1 | P2 | PhoneP2 (also works with a serial no./time column, or without phones).
+  // Each phone belongs to the name just before it.
   function rowToItem(cells) {
-    const vals = cells.map((c) => String(c == null ? '' : c).trim()).filter((c) => c && !TIME.test(c) && !NUM.test(c) && !/^(vs\.?|v|v\/s)$/i.test(c));
-    if (vals.length >= 2) return { a: tidy(vals[0]), b: tidy(vals[1]) };
-    if (vals.length === 1) return parseText(vals[0])[0] || null; // "Raj vs Amit" in one cell
+    const names = [], phones = [];
+    cells.map((c) => String(c == null ? '' : c).trim()).forEach((c) => {
+      if (!c) return;
+      if (isPhone(c)) { if (names.length && !phones[names.length - 1]) phones[names.length - 1] = c; return; }
+      if (TIME.test(c) || NUM.test(c) || /^(vs\.?|v|v\/s)$/i.test(c)) return;
+      names.push(c);
+    });
+    if (names.length >= 2) return { a: tidy(names[0]), b: tidy(names[1]), phoneA: phones[0] || '', phoneB: phones[1] || '' };
+    if (names.length === 1) return parseText(names[0])[0] || null; // "Raj vs Amit" in one cell
     return null;
   }
   function parseRows(rows) {

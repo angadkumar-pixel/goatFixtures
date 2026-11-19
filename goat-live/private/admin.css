@@ -115,6 +115,19 @@ button.small { padding: 6px 10px; font-size: 13px; color: var(--mute); }
 .big.stop { background: transparent; border-color: rgba(255,45,70,0.5); color: #ff8a98; }
 .why { margin: 0; color: #ffb3bc; font-size: 13px; }
 .done li .won { color: var(--gold); }
+.wa { margin-top: 12px; }
+.wa summary { cursor: pointer; color: var(--mute); font: 700 14px 'Barlow Condensed', sans-serif; letter-spacing: 2px; text-transform: uppercase; }
+.wa summary span { color: var(--green); margin-left: 6px; letter-spacing: 1px; }
+.wa-head { display: flex; align-items: center; gap: 10px; margin: 8px 0; font-size: 13px; color: var(--mute); }
+.wa-head span { flex: 1; }
+.wa-head button.on { background: var(--green); border-color: var(--green); color: #032; font-weight: 700; }
+.wa-log { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; max-height: 320px; overflow: auto; }
+.wa-log li { padding: 7px 10px; border: 1px solid var(--line); border-radius: 9px; font-size: 12px; color: var(--mute); }
+.wa-log li b { color: var(--text); }
+.wa-log li .st { float: right; font-weight: 700; }
+.wa-log li .st.ok { color: var(--green); } .wa-log li .st.bad { color: #ff8a98; } .wa-log li .st.test { color: var(--gold); }
+.wa-log li p { margin: 4px 0 0; color: #cfd6ff; }
+.bulk-preview .ph { color: var(--green); font: 600 12px Inter, sans-serif; text-transform: none; margin-left: 4px; }
 #toasts { position: fixed; bottom: calc(16px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; z-index: 50;
   width: max-content; max-width: calc(100vw - 24px); }
 .toast { display: flex; align-items: center; gap: 12px; padding: 9px 10px 9px 14px; background: #1a2350; border: 1px solid var(--line2); border-radius: 11px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }

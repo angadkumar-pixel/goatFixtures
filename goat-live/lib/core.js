@@ -5,10 +5,11 @@ const crypto = require('crypto');
 const BOARD_SIZE = 10;
 const uid = () => crypto.randomBytes(5).toString('hex');
 const clean = (s, n = 60) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim().slice(0, n);
-const DEFAULT_SETTINGS = { replayMinutes: 10, matchMinutes: 15, courts: 4, liveToTop: true, adSeconds: 8, callMinutes: 5, autoCall: true, autoStart: true };
+const DEFAULT_SETTINGS = { notify: false, replayMinutes: 10, matchMinutes: 15, courts: 4, liveToTop: true, adSeconds: 8, callMinutes: 5, autoCall: true, autoStart: true };
 
-function newMatch({ a, b }) {
-  return { id: uid(), a: clean(a), b: clean(b), court: '', time: null, timeLocked: false, status: 'queued', ending: false, shownAt: null,
+function newMatch({ a, b, phoneA, phoneB }) {
+  const contact = phoneA || phoneB ? { contact: { a: clean(phoneA, 20), b: clean(phoneB, 20) } } : {};
+  return { ...contact, id: uid(), a: clean(a), b: clean(b), court: '', time: null, timeLocked: false, status: 'queued', ending: false, shownAt: null,
     startedAt: null, endedAt: null, calledAt: null, callAt: null, ready: false, readyFor: null, readyCourt: '', readyAt: null, delay: 0 };
 }
 function newState({ sample = false } = {}) {
@@ -144,6 +145,7 @@ function applyAction(st, act, now) {
       if ('a' in act) m.a = clean(act.a);
       if ('b' in act) m.b = clean(act.b);
       if ('court' in act) m.court = clean(act.court, 12);
+      if ('phoneA' in act || 'phoneB' in act) m.contact = { a: clean(act.phoneA, 20), b: clean(act.phoneB, 20) };
       break;
     }
     case 'delay': {
@@ -229,6 +231,7 @@ function applyAction(st, act, now) {
         callMinutes: num(s.callMinutes ?? cur.callMinutes, 0, 60, 5),
         autoCall: s.autoCall ?? cur.autoCall,
         autoStart: s.autoStart ?? cur.autoStart,
+        notify: s.notify ?? cur.notify,
       };
       break;
     }
@@ -241,6 +244,7 @@ function applyAction(st, act, now) {
 }
 
 // What the pages receive.
-const view = (st, extra = {}) => ({ ...st, boardSize: BOARD_SIZE, now: Date.now(), ...extra });
+const strip = (m) => { if (!m.contact) return m; const { contact, ...rest } = m; return rest; }; // screens never get phone numbers
+const view = (st, extra = {}) => ({ ...st, matches: st.matches.map(strip), done: st.done.map(strip), boardSize: BOARD_SIZE, now: Date.now(), ...extra });
 
 module.exports = { BOARD_SIZE, clean, newMatch, newState, migrate, normalize, autoStart, apply, view, ops };
