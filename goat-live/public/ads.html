@@ -60,45 +60,89 @@
   const goHome = () => (EMBEDDED ? parent.postMessage('goat-close-ads', location.origin) : (location.href = '/'));
   GoatLive.connect((s) => { secs = (s.settings && s.settings.adSeconds) || 8; });
 
+  let pre = null, watchdog = null, playToken = 0, failStreak = 0;
+  // Fully stop a video and hand its decoder back (TVs often have only one hardware video decoder).
+  function release(v) {
+    try { v.onended = v.onerror = v.onplaying = v.onwaiting = null; v.pause(); v.removeAttribute('src'); v.load(); } catch {}
+  }
+  const drop = (slide) => { slide.querySelectorAll('video').forEach(release); slide.remove(); };
+  // A slide that won't play is skipped. If everything keeps failing, show a calm screen and retry later (never spin forever).
+  function skip() {
+    failStreak++;
+    if (failStreak >= Math.max(2, ads.length * 2)) {
+      failStreak = 0; clearTimeout(watchdog); playToken++;
+      [...show.children].forEach(drop);
+      show.innerHTML = '<div class="empty"><div><h1>THE GOAT</h1><p>Slideshow resumes in a moment</p></div></div>';
+      current = null;
+      timer = setTimeout(next, 20000);
+      return;
+    }
+    next();
+  }
+  function playVideo(el, ad) {
+    const token = ++playToken, alive = () => token === playToken;
+    // reuse the copy that was buffering in the background (not on TVs: one decoder only)
+    const v = !LITE && pre && pre.dataset.src === ad.src ? pre : document.createElement('video');
+    if (pre && pre !== v) release(pre);
+    pre = null;
+    v.setAttribute('playsinline', ''); v.setAttribute('webkit-playsinline', ''); v.preload = 'auto';
+    if (v.dataset.src !== ad.src) { v.src = ad.src; v.dataset.src = ad.src; }
+    el.append(v);
+    current = v;
+    v.muted = !soundOn;
+    let started = false, stallT = null;
+    v.onplaying = () => { if (!alive()) return; started = true; failStreak = 0; clearTimeout(stallT); };
+    v.onwaiting = () => { if (!alive()) return; clearTimeout(stallT); stallT = setTimeout(() => alive() && skip(), 12000); }; // stuck buffering
+    v.onended = () => { if (alive()) next(); };
+    v.onerror = () => { if (alive()) setTimeout(() => alive() && skip(), 600); };
+    const tryPlay = () => {
+      const pr = v.play();
+      if (pr && pr.catch) pr.catch(() => { if (alive() && !v.muted) { soundOn = false; v.muted = true; v.play().catch(() => {}); } });
+    };
+    tryPlay();
+    // Some TV browsers never answer when sound is blocked: after 3 s retry muted; if still nothing by 12 s, move on.
+    clearTimeout(watchdog);
+    watchdog = setTimeout(() => {
+      if (!alive() || started) return;
+      if (!v.muted) { soundOn = false; v.muted = true; tryPlay(); }
+      watchdog = setTimeout(() => { if (alive() && !started) skip(); }, 9000);
+    }, 3000);
+    if (!LITE) preloadNext();
+  }
+
   function next() {
-    clearTimeout(timer);
+    clearTimeout(timer); clearTimeout(watchdog);
     if (!ads.length) return;
     i = (i + 1) % ads.length;
     const ad = ads[i];
+    const old = [...show.children];
+    if (LITE) old.forEach(drop); // TVs: free the decoder before the next video starts; straight cut
     const el = document.createElement('div');
     el.className = 'slide';
     el.style.setProperty('--dur', secs + 2 + 's');
+    show.append(el);
+    bar.style.transition = 'none'; bar.style.width = '0';
     if (ad.video) {
       el.classList.add('is-video'); // empty sides get a calm brand backdrop (see .is-video)
-      // use the copy that was already buffering in the background, if it's this video
-      const v = pre && pre.dataset.src === ad.src ? pre : document.createElement('video');
-      pre = null;
-      v.setAttribute('playsinline', ''); v.preload = 'auto';
-      if (!v.dataset.src) { v.src = ad.src; v.dataset.src = ad.src; }
-      el.append(v);
-      v.muted = !soundOn;
-      v.onended = next; v.onerror = next;
-      current = v;
-      v.play().catch(() => { soundOn = false; v.muted = true; v.play().catch(next); });
-      bar.style.transition = 'none'; bar.style.width = '0';
-      preloadNext();
+      playVideo(el, ad);
     } else {
+      playToken++; current = null;
       el.innerHTML = `<div class="blur" style="background-image:url('${ad.src}')"></div><img alt="" src="${ad.src}">`;
-      bar.style.transition = 'none'; bar.style.width = '0'; void bar.offsetWidth;
+      el.querySelector('img').onerror = () => setTimeout(skip, 300);
+      el.querySelector('img').onload = () => { failStreak = 0; };
+      void bar.offsetWidth;
       bar.style.transition = `width ${secs}s linear`; bar.style.width = '100%';
       timer = setTimeout(next, secs * 1000);
     }
-    show.append(el);
-    const old = [...show.children].slice(0, -1);
-    if (LITE) { el.classList.add('on'); old.forEach((o) => o.remove()); return; } // TVs: straight cut, nothing overlapping
+    if (LITE) { el.classList.add('on'); return; }
     requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('on')));
-    setTimeout(() => old.forEach((o) => o.remove()), 1300);
+    setTimeout(() => old.forEach(drop), 1300);
   }
-  // Start buffering the next video while this one plays, so it starts instantly.
-  let pre = null;
+  // Start buffering the next video while this one plays, so it starts instantly (phones / laptops only).
   function preloadNext() {
     const nx = ads[(i + 1) % ads.length];
     if (!nx || !nx.video || (pre && pre.dataset.src === nx.src)) return;
+    if (pre) release(pre);
     pre = document.createElement('video');
     pre.preload = 'auto'; pre.muted = true; pre.setAttribute('playsinline', '');
     pre.src = nx.src; pre.dataset.src = nx.src;

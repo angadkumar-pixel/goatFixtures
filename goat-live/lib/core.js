@@ -41,6 +41,7 @@ function autoStart(st, now = Date.now()) {
   if (!st.settings.autoStart) return false;
   const due = st.matches.filter((m) => m.status === 'called' && m.callAt <= now);
   due.forEach((m) => ops(st).startMatch(m, now));
+  if (due.length) activeOnTop(st);
   return due.length > 0;
 }
 
@@ -77,21 +78,56 @@ function ops(st) {
   }
   function backToQueue(m) {
     unflagReady(m); clearReady(m);
-    Object.assign(m, { status: 'queued', ending: false, startedAt: null, calledAt: null, callAt: null, court: '' });
+    Object.assign(m, { status: 'queued', ending: false, startedAt: null, calledAt: null, callAt: null, court: '', pinned: false });
+  }
+  const onBoard = (m) => st.matches.indexOf(m) < BOARD_SIZE;
+  const boardError = () => new Error('Only matches on the board can start. Drag it onto the board first.');
+  // The court that is counting down belongs to whoever is highest in the order of play.
+  // e.g. a match dragged above the called one takes over its court and countdown. Manual calls (pinned) stay put.
+  function rebalance(now) {
+    const waiting = st.matches.filter((x) => x.status === 'queued' || (x.status === 'called' && !x.pinned));
+    const called = waiting.filter((x) => x.status === 'called');
+    if (called.length) {
+      const should = waiting.slice(0, called.length);
+      if (!should.every((x) => x.status === 'called')) {
+        const slots = called.map((x) => ({ court: x.court, callAt: x.callAt, calledAt: x.calledAt })).sort((a, b) => a.callAt - b.callAt);
+        called.forEach((x) => { if (!should.includes(x)) Object.assign(x, { status: 'queued', court: '', callAt: null, calledAt: null, pinned: false }); });
+        should.forEach((x, i) => { clearReady(x); Object.assign(x, { status: 'called', ending: false, court: slots[i].court, callAt: slots[i].callAt, calledAt: slots[i].calledAt, pinned: false }); });
+      }
+    }
+    // "be ready" also follows the order: it belongs to the first waiting match
+    const ready = st.matches.find((x) => x.ready), first = st.matches.find((x) => x.status === 'queued');
+    if (ready && first && ready !== first) {
+      const { readyFor, readyCourt } = ready;
+      clearReady(ready);
+      Object.assign(first, { ready: true, readyFor, readyCourt, readyAt: now });
+    }
   }
   // Call a match to a court: it shows "Court N · starts in mm:ss", then goes live automatically.
-  function callMatch(m, court, now, minutes = st.settings.callMinutes) {
+  function callMatch(m, court, now, minutes = st.settings.callMinutes, pinned = false) {
     clearReady(m);
-    m.status = 'called'; m.ending = false; m.court = court; m.calledAt = now;
+    m.status = 'called'; m.ending = false; m.court = court; m.calledAt = now; m.pinned = !!pinned;
     m.callAt = Math.round(now + Math.max(0, minutes) * 60000);
     m.time = m.callAt;
     if (st.settings.liveToTop) moveTo(m.id, liveCount(m.id));
   }
-  return { idxOf, liveCount, courtCap, capError, moveTo, courtBusy, freeCourt, flagReady, unflagReady, startMatch, backToQueue, callMatch };
+  return { idxOf, liveCount, courtCap, capError, moveTo, courtBusy, freeCourt, flagReady, unflagReady, startMatch, backToQueue, callMatch, onBoard, boardError, rebalance };
+}
+
+// Live matches, then matches counting down to start, always hold the top spots of the board (stable order otherwise).
+function activeOnTop(st) {
+  const live = st.matches.filter((m) => m.status === 'live'), called = st.matches.filter((m) => m.status === 'called');
+  const rest = st.matches.filter((m) => m.status !== 'live' && m.status !== 'called');
+  st.matches = live.concat(called, rest);
 }
 
 // Apply one admin action to the state (mutates it). Returns extra info for the admin, or null. Throws on bad input.
 function apply(st, act, now = Date.now()) {
+  const result = applyAction(st, act, now);
+  activeOnTop(st);
+  return result;
+}
+function applyAction(st, act, now) {
   const o = ops(st);
   const m = act.id ? st.matches.find((x) => x.id === act.id) : null;
   switch (act.type) {
@@ -100,6 +136,7 @@ function apply(st, act, now = Date.now()) {
       const made = list.filter((x) => clean(x.a) || clean(x.b)).slice(0, 1000).map(newMatch);
       if (!made.length) throw new Error('Enter at least one player name');
       st.matches.splice(act.where === 'next' ? o.liveCount() : st.matches.length, 0, ...made);
+      o.rebalance(now);
       break;
     }
     case 'update': {
@@ -114,12 +151,13 @@ function apply(st, act, now = Date.now()) {
       m.delay = Math.max(0, Math.min(180, Math.round(Number(act.minutes) || 0)));
       break;
     }
-    case 'move': if (!m) throw new Error('Match not found'); o.moveTo(act.id, act.to); break;
+    case 'move': if (!m) throw new Error('Match not found'); o.moveTo(act.id, act.to); o.rebalance(now); break;
     case 'live': {
       if (!m) throw new Error('Match not found');
       if (act.live) {
+        if (m.status === 'queued' && !o.onBoard(m)) throw o.boardError();
         if (m.status === 'queued' && o.liveCount(m.id) >= o.courtCap()) throw o.capError();
-        if (act.court != null) m.court = clean(act.court, 12);
+        if (act.court != null && act.court !== '') { if (o.courtBusy(clean(act.court, 12), m.id)) throw new Error('Court ' + clean(act.court, 12) + ' is busy'); m.court = clean(act.court, 12); }
         o.startMatch(m, now);
         if (st.settings.liveToTop) o.moveTo(m.id, o.liveCount(m.id));
       } else o.backToQueue(m);
@@ -127,10 +165,12 @@ function apply(st, act, now = Date.now()) {
     }
     case 'call': {
       if (!m) throw new Error('Match not found');
+      if (m.status === 'queued' && !o.onBoard(m)) throw o.boardError();
       if (m.status === 'queued' && o.liveCount(m.id) >= o.courtCap()) throw o.capError();
+      if (act.court && o.courtBusy(clean(act.court, 12), m.id)) throw new Error('Court ' + clean(act.court, 12) + ' is busy');
       const court = act.court ? clean(act.court, 12) : (m.court && !o.courtBusy(m.court, m.id) ? m.court : o.freeCourt());
       if (!court) throw new Error('All courts are busy');
-      o.callMatch(m, court, now, Number.isFinite(act.minutes) ? act.minutes : undefined);
+      o.callMatch(m, court, now, Number.isFinite(act.minutes) ? act.minutes : undefined, true);
       return { called: { a: m.a, b: m.b, court } };
     }
     case 'extend': {
@@ -150,7 +190,7 @@ function apply(st, act, now = Date.now()) {
       const freed = m.status === 'live' ? m.court || '' : '';
       const readyOne = st.matches.find((x) => x.readyFor === m.id);
       st.matches.splice(o.idxOf(m.id), 1);
-      Object.assign(m, { status: 'done', ending: false, endedAt: now, calledAt: null, callAt: null });
+      Object.assign(m, { status: 'done', ending: false, endedAt: now, calledAt: null, callAt: null, winner: act.winner === 'a' || act.winner === 'b' ? act.winner : null });
       st.done.unshift(m);
       if (st.settings.autoCall) { // hand the freed court to whoever is next (the "be ready" match first)
         const court = freed && !o.courtBusy(freed) ? freed : o.freeCourt();

@@ -35,6 +35,7 @@
       <input name="b" placeholder="Player B" maxlength="60" required>
       <button class="primary" type="submit" aria-label="Add match">+ Add</button>
     </form>
+    <button type="button" id="bulkBtn" class="bulk-btn">⇪ Bulk add (Excel / paste a list)</button>
     <details class="done"><summary>Completed <span id="doneCount">0</span></summary><ol id="doneList"></ol></details>
   </section>
 </main>
@@ -51,10 +52,21 @@
   </form>
 </dialog>
 
+<dialog id="bulkDlg" aria-labelledby="bulkTitle">
+  <div class="sheet-head"><div><h3 id="bulkTitle">Bulk add matches</h3>
+    <p>Added to the <b>end of the queue, in this order</b>. Use any of these:</p></div>
+    <button type="button" class="ghost x" data-close aria-label="Close">✕</button></div>
+  <label class="file-pick">📄 Choose an Excel or CSV file<input type="file" id="bulkFile" accept=".xlsx,.csv,.txt"></label>
+  <textarea id="bulkText" rows="7" placeholder="…or paste / type here:&#10;• copied cells from Excel (Player A | Player B columns)&#10;• one per line:  Raj | Amit   or   Raj vs Amit&#10;• a paragraph:  Raj vs Amit, Sana vs Mehak and Priya v Riya"></textarea>
+  <div id="bulkPreview" class="bulk-preview"></div>
+  <div class="dlg-actions"><button type="button" data-close>Cancel</button><button type="button" class="primary" id="bulkAdd" disabled>Add</button></div>
+</dialog>
+
 <div id="toasts" aria-live="polite"></div>
 <script src="/config.js"></script>
 <script src="/js/goat-shared.js"></script>
 <script src="/js/live.js"></script>
+<script src="/admin/bulk.js"></script>
 <script src="/admin/admin.js"></script>
 </body>
 </html>

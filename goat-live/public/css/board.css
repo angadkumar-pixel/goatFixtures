@@ -147,7 +147,7 @@ body.idle { cursor: none; }
 .hud kbd { font: inherit; opacity: 0.6; margin-left: 4px; }
 
 /* lite mode (smart TVs, slow devices): same look and the same camera zoom, minus the expensive extras */
-html.lite .beams, html.lite .spot, html.lite .panel-glow { display: none; }
+html.lite .panel-glow { display: none; }
 html.lite .heading, html.lite .chrome, html.lite .clock, html.lite .chip, html.lite .sweep, html.lite .trace, html.lite .bg-dark, html.lite .blink { will-change: auto; }
 html.lite .row.live .plate::before, html.lite .row.live .vs::after, html.lite .status .dot::after, html.lite .chip .dot::after, html.lite .row.called .chip::after { animation: none; }
 html.lite .vs, html.lite .clock, html.lite .big { text-shadow: none; }
@@ -157,3 +157,8 @@ html.lite .ring, html.lite .blink, html.lite .chip { box-shadow: none; }
   .row.live .plate::before, .row.live .vs::after, .status .dot::after, .chip .dot::after, .row.called .chip::after,
   .row.ready .blink, .row.ready .chip { animation: none; }
 }
+
+/* winner moment before a finished match leaves */
+.row.won-a .plate.a .tint, .row.won-b .plate.b .tint { opacity: 1; background: linear-gradient(180deg, #ffe066 0%, #fcc500 55%, #d9a400 100%); }
+.row.won-a .plate.a .name, .row.won-b .plate.b .name { color: var(--ink); }
+.row.finished .chip { background: var(--gold); color: var(--ink); }

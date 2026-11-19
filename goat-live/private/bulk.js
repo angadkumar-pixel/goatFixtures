@@ -1,0 +1,104 @@
+// Bulk add: Excel (.xlsx), CSV, pasted Excel cells, one-per-line lists, or a free-text paragraph.
+// Exposes window.GoatBulk.parseText(text) / parseRows(rows) / readFile(file) → [{a, b}] in order.
+window.GoatBulk = (() => {
+  const TIME = /^\d{1,2}[:.]\d{2}(\s*[ap]\.?m\.?)?$/i, NUM = /^#?\d+[.)]?$/;
+  const HEADER = /^(player|players|team|teams|name|names|side|a|b|player\s*[12ab]|team\s*[12ab]|match|no\.?|sr\.?|s\.?no\.?|#|time|court|vs|v)$/i;
+  // tidy a name: drop numbering like "1." / "Match 3:" / a leading "and"/"then"
+  const tidy = (s) => String(s || '').replace(/\s+/g, ' ').trim()
+    .replace(/^[^:]{0,24}:\s*/, '')                                            // "Today:", "Match 4:", "Court 2:"
+    .replace(/^(?:match\s*\d+\s*[.)-]?|\d+\s*[.):-]|and\s+|then\s+|&\s+)\s*/i, '')
+    .replace(/[.;,]+$/, '').trim();
+  const isHeader = (cells) => { const v = cells.map((c) => String(c || '').trim()).filter(Boolean); return v.length > 0 && v.every((c) => HEADER.test(c)); };
+
+  function rowToItem(cells) {
+    const vals = cells.map((c) => String(c == null ? '' : c).trim()).filter((c) => c && !TIME.test(c) && !NUM.test(c) && !/^(vs\.?|v|v\/s)$/i.test(c));
+    if (vals.length >= 2) return { a: tidy(vals[0]), b: tidy(vals[1]) };
+    if (vals.length === 1) return parseText(vals[0])[0] || null; // "Raj vs Amit" in one cell
+    return null;
+  }
+  function parseRows(rows) {
+    rows = rows.filter((r) => r && r.some((c) => String(c || '').trim()));
+    if (rows.length && rows[0].filter((c) => String(c || '').trim()).every((c) => HEADER.test(String(c).trim()))) rows = rows.slice(1); // header row
+    return rows.map(rowToItem).filter((x) => x && x.a && x.b);
+  }
+  function parseText(text) {
+    const out = [];
+    for (const raw of String(text || '').split(/\r?\n/)) {
+      const line = raw.trim();
+      if (!line) continue;
+      if (line.includes('\t')) { const cells = line.split('\t'); if (!isHeader(cells)) { const it = rowToItem(cells); if (it) out.push(it); } continue; } // pasted Excel cells
+      if (isHeader(line.split(/\s*[|,]\s*/))) continue;                                                       // a header line
+      if (line.includes('|')) { const it = rowToItem(line.split('|')); if (it) out.push(it); continue; }     // A | B
+      // "A vs B" (several per line / a paragraph): split at commas, semicolons, full stops, "and", "then"
+      const re = /([^,;\n]+?)\s+(?:vs\.?|v\/s|v\.?|versus|against)\s+(.+?)(?=\s*(?:,|;|\.(?=\s|$)|\s+and\s+(?=[^,;]*\s(?:vs\.?|v\/s|v\.?|versus|against)\s)|\s+then\s+|$))/gi;
+      let m, found = false;
+      while ((m = re.exec(line))) { const a = tidy(m[1]), b = tidy(m[2]); if (a && b) { out.push({ a, b }); found = true; } }
+      if (found) continue;
+      const parts = line.split(/\s*,\s*/).filter(Boolean);                                                   // "A, B" (CSV line)
+      if (parts.length >= 2) { const it = rowToItem(parts); if (it) out.push(it); }
+    }
+    return out;
+  }
+
+  // ── minimal .xlsx reader (zip + XML), first worksheet ──
+  async function readXlsx(buf) {
+    const dv = new DataView(buf), td = new TextDecoder();
+    let eocd = -1;
+    for (let i = buf.byteLength - 22; i >= Math.max(0, buf.byteLength - 70000); i--) if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+    if (eocd < 0) throw new Error('This file is not a valid .xlsx');
+    const files = {};
+    let p = dv.getUint32(eocd + 16, true);
+    for (let k = 0, n = dv.getUint16(eocd + 10, true); k < n; k++) {
+      const nlen = dv.getUint16(p + 28, true), elen = dv.getUint16(p + 30, true), clen = dv.getUint16(p + 32, true);
+      files[td.decode(new Uint8Array(buf, p + 46, nlen))] = { method: dv.getUint16(p + 10, true), size: dv.getUint32(p + 20, true), off: dv.getUint32(p + 42, true) };
+      p += 46 + nlen + elen + clen;
+    }
+    async function read(name) {
+      const f = files[name]; if (!f) return null;
+      const start = f.off + 30 + dv.getUint16(f.off + 26, true) + dv.getUint16(f.off + 28, true);
+      const data = new Uint8Array(buf, start, f.size);
+      if (f.method === 0) return td.decode(data);
+      if (!window.DecompressionStream) throw new Error('This browser cannot open .xlsx — save the sheet as CSV, or copy the cells and paste them.');
+      return td.decode(await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
+    }
+    const xml = (s) => new DOMParser().parseFromString(s, 'application/xml');
+    const shared = [];
+    const ss = await read('xl/sharedStrings.xml');
+    if (ss) for (const si of xml(ss).getElementsByTagName('si')) shared.push([...si.getElementsByTagName('t')].map((t) => t.textContent).join(''));
+    const sheet = files['xl/worksheets/sheet1.xml'] ? 'xl/worksheets/sheet1.xml' : Object.keys(files).filter((n) => /^xl\/worksheets\/sheet\d+\.xml$/.test(n)).sort()[0];
+    if (!sheet) throw new Error('No worksheet found in this file');
+    const rows = [];
+    for (const r of xml(await read(sheet)).getElementsByTagName('row')) {
+      const cells = [];
+      for (const c of r.getElementsByTagName('c')) {
+        const col = (c.getAttribute('r') || '').replace(/\d+/g, '');
+        const ci = col ? col.split('').reduce((a, ch) => a * 26 + ch.charCodeAt(0) - 64, 0) - 1 : cells.length;
+        const t = c.getAttribute('t'), v = c.getElementsByTagName('v')[0];
+        cells[ci] = t === 's' ? shared[+(v && v.textContent)] || '' : t === 'inlineStr' ? [...c.getElementsByTagName('t')].map((x) => x.textContent).join('') : v ? v.textContent : '';
+      }
+      rows.push(Array.from(cells, (x) => (x == null ? '' : x)));
+    }
+    return rows;
+  }
+  function csvRows(text) { // handles quoted cells
+    const rows = []; let row = [], cell = '', q = false;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (q) { if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch; }
+      else if (ch === '"') q = true;
+      else if (ch === ',' || ch === ';' || ch === '\t') { row.push(cell); cell = ''; }
+      else if (ch === '\n' || ch === '\r') { if (ch === '\r' && text[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; }
+      else cell += ch;
+    }
+    if (cell || row.length) { row.push(cell); rows.push(row); }
+    return rows;
+  }
+  async function readFile(file) {
+    const name = file.name.toLowerCase();
+    if (name.endsWith('.xls')) throw new Error('Old .xls files are not supported — in Excel use Save As → .xlsx or CSV.');
+    if (name.endsWith('.xlsx')) return parseRows(await readXlsx(await file.arrayBuffer()));
+    const text = await file.text();
+    return name.endsWith('.csv') ? parseRows(csvRows(text)) : parseText(text);
+  }
+  return { parseText, parseRows, readFile, csvRows };
+})();

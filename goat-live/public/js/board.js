@@ -251,9 +251,11 @@
     if (ended) {
       r.el.classList.remove('ending');
       r.el.classList.add('finished');
-      r.chipHTML = 'FINISHED'; r.chipKey = 'FINISHED';
+      const w = ended.winner === 'a' ? ended.a : ended.winner === 'b' ? ended.b : '';
+      if (w) r.el.classList.add('won-' + ended.winner);
+      r.chipHTML = w ? '🏆 ' + esc(w) + ' WINS' : 'FINISHED'; r.chipKey = r.chipHTML;
       flipChip(r);
-      await sleep(650);
+      await sleep(w ? 2200 : 650); // let everyone read the winner
       r.flash.animate([{ opacity: 0 }, { opacity: 0.9 }, { opacity: 0 }], { duration: 520 });
       r.ring.animate([{ opacity: 1, transform: 'scale(.3)' }, { opacity: 0, transform: 'scale(3.2)' }], { duration: 700, easing: 'cubic-bezier(.22,1,.36,1)' });
       await fin(r.card.animate([{ transform: 'scale(1)', opacity: 1 }, { transform: 'scale(1.05)', opacity: 1, offset: 0.3 }, { transform: 'scale(0.6)', opacity: 0 }],
@@ -266,7 +268,7 @@
   }
 
   function spotlight(b) {
-    if (skipMotion() || LITE) return;
+    if (skipMotion()) return;
     spot.style.left = b.cx + 'px'; spot.style.top = b.cy + 'px';
     spot.animate([{ opacity: 0, transform: 'scale(.5)' }, { opacity: 1, transform: 'scale(1)', offset: 0.35 }, { opacity: 0, transform: 'scale(1.3)' }],
       { duration: 1700, easing: 'ease-out' });
@@ -284,11 +286,11 @@
   async function reconcile(s) {
     const vis = s.matches.slice(0, SLOTS);
     const ids = new Set(vis.map((m) => m.id));
-    const doneIds = new Set((s.done || []).map((d) => d.id));
+    const doneById = new Map((s.done || []).map((d) => [d.id, d]));
     vis.forEach((m) => { const r = rows.get(m.id); if (r) paintRow(r, m); });
 
     const exits = [...rows.values()].filter((r) => !ids.has(r.m.id));
-    if (exits.length) await Promise.all(exits.map((r) => exitRow(r, doneIds.has(r.m.id))));
+    if (exits.length) await Promise.all(exits.map((r) => exitRow(r, doneById.get(r.m.id))));
 
     let k = 0;
     vis.forEach((m, i) => { const r = rows.get(m.id); if (r && r.slot !== i) place(r, i, true, k++ * 55); });
@@ -328,6 +330,7 @@
     rows.forEach((r) => r.el.remove()); rows.clear();
     const rs = latest.matches.slice(0, SLOTS).map((m, i) => { const r = buildRow(m); place(r, i, false); return r; });
     if (skipMotion()) { setFinal(); return Promise.resolve(); }
+    if (LITE) return playIntroLite(rs);
     const slot = 1.1, C = { Lights: 1, Matches: 3.6 };
     C.Reveal = C.Matches + Math.max(1, rs.length) * slot;
     const total = C.Reveal + 2.6;
@@ -369,6 +372,66 @@
     track(A, chrome, C.Reveal + 0.8, C.Reveal + 1.8, (T) => ({ opacity: fr(T, C.Reveal + 0.8, C.Reveal + 1.8) }), 30);
     track(A, sweepEl, C.Reveal + 1.4, C.Reveal + 2.4, (T) => ({ transform: `translateX(${fl(0, L.panel.w + 700, fr(T, C.Reveal + 1.4, C.Reveal + 2.4))}px) rotate(18deg)` }));
     rs.forEach((r, i) => bakeSlam(A, r, C.Matches + i * slot + 0.25));
+    startTogether(A);
+    return new Promise((res) => {
+      let t;
+      introDone = () => { clearTimeout(t); introDone = null; setFinal(); endAll(A); introAnims = []; res(); };
+      t = setTimeout(() => introDone && introDone(), total * 1000 + 50);
+    });
+  }
+
+  // TV version of the intro: the same choreography (lights, panel trace, heading slam, camera diving onto every
+  // match, reveal) described by a few key moments per element. The TV's graphics chip fills in the motion,
+  // so nothing heavy is calculated up front and it can't fall behind.
+  function playIntroLite(rs) {
+    const slot = 1.1, C = { Lights: 1, Matches: 3.6 };
+    C.Reveal = C.Matches + Math.max(1, rs.length) * slot;
+    const total = C.Reveal + 2.6, A = (introAnims = []);
+    const EIO = 'cubic-bezier(.65,0,.35,1)', OUT = 'cubic-bezier(.22,1,.36,1)';
+    const kf = (el, pts) => {
+      const frames = pts.map((p) => Object.assign({}, p.v, { offset: Math.min(1, Math.max(0, p.t / total)), easing: p.e || 'linear' }));
+      if (frames[0].offset > 0) frames.unshift(Object.assign({}, pts[0].v, { offset: 0 }));
+      if (frames[frames.length - 1].offset < 1) frames.push(Object.assign({}, pts[pts.length - 1].v, { offset: 1 }));
+      A.push(el.animate(frames, { duration: total * 1000, fill: 'both' }));
+    };
+    // camera: hold, dive onto each match as it slams in, then pull back to the full board
+    const cam = (c) => ({ transform: camTransform(c) });
+    const camPts = [{ t: 0, v: cam(FULL) }];
+    rs.forEach((r, i) => {
+      const s0 = C.Matches + i * slot;
+      camPts.push({ t: s0, v: cam(i === 0 ? FULL : Object.assign({}, slotBox(i - 1), { z: L.dive })), e: EIO });
+      camPts.push({ t: s0 + (i === 0 ? 0.6 : 0.38), v: cam(Object.assign({}, slotBox(i), { z: L.dive })) });
+    });
+    if (rs.length) {
+      camPts.push({ t: C.Reveal, v: cam(Object.assign({}, slotBox(rs.length - 1), { z: L.dive })), e: EIO });
+      camPts.push({ t: C.Reveal + 1.5, v: cam(FULL) });
+    }
+    kf(camEl, camPts);
+    // darkness and light beams
+    const darkPts = [{ t: 0, v: { opacity: 1 } }, { t: C.Reveal + 0.2, v: { opacity: 1 }, e: EIO }, { t: C.Reveal + 1.6, v: { opacity: 0 } }];
+    kf(bgDark, darkPts); kf(beamsEl, darkPts);
+    BEAMS.forEach((b, i) => {
+      const on = C.Lights + i * 0.18;
+      const rot = (t) => 'rotate(' + fl(b.a0, b.a1, eIO(fr(t, C.Lights, C.Matches))) + 'deg)';
+      const times = [0, on, on + 0.12, C.Lights + 0.8, C.Lights + 1.4, C.Lights + 2, C.Matches, C.Matches + 2].filter((t, k, arr) => k === 0 || t > arr[k - 1]);
+      kf(b.d, times.map((t) => ({ t, v: { opacity: t < on + 0.12 ? 0 : 0.9, transform: rot(t) } })));
+      kf(b.h, [{ t: 0, v: { opacity: 0 } }, { t: on, v: { opacity: 0 } }, { t: on + 0.12, v: { opacity: 1 } }]);
+    });
+    kf(panel, [{ t: 0, v: { opacity: 0 } }, { t: C.Lights + 0.9, v: { opacity: 0 }, e: OUT }, { t: C.Lights + 1.6, v: { opacity: 1 } }]);
+    for (const r of [trace, traceGlow]) A.push(r.animate([{ strokeDashoffset: PERIM }, { strokeDashoffset: 0 }], { duration: 1000, delay: (C.Lights + 0.5) * 1000, fill: 'both' }));
+    const h0 = C.Lights + 1.3;
+    kf(heading, [{ t: 0, v: { opacity: 0, transform: 'scale(1.5)' } }, { t: h0, v: { opacity: 0, transform: 'scale(1.5)' }, e: OUT },
+      { t: h0 + 0.2, v: { opacity: 1, transform: 'scale(1.15)' }, e: OUT }, { t: h0 + 0.36, v: { opacity: 1, transform: 'scale(0.97)' }, e: OUT }, { t: h0 + 0.6, v: { opacity: 1, transform: 'scale(1)' } }]);
+    kf(chrome, [{ t: 0, v: { opacity: 0 } }, { t: C.Reveal + 0.8, v: { opacity: 0 } }, { t: C.Reveal + 1.8, v: { opacity: 1 } }]);
+    kf(sweepEl, [{ t: 0, v: { transform: 'translateX(0) rotate(18deg)' } }, { t: C.Reveal + 1.4, v: { transform: 'translateX(0) rotate(18deg)' }, e: 'cubic-bezier(.4,0,.2,1)' },
+      { t: C.Reveal + 2.4, v: { transform: 'translateX(' + (L.panel.w + 700) + 'px) rotate(18deg)' } }]);
+    // each match slams in: big → overshoot → settle
+    rs.forEach((r, i) => {
+      const te = C.Matches + i * slot + 0.25;
+      kf(r.card, [{ t: 0, v: { opacity: 0, transform: 'scale(1.6)' } }, { t: te, v: { opacity: 0, transform: 'scale(1.6)' }, e: OUT },
+        { t: te + 0.12, v: { opacity: 1, transform: 'scale(1.25)' }, e: OUT }, { t: te + 0.3, v: { opacity: 1, transform: 'scale(0.96)' }, e: OUT },
+        { t: te + 0.45, v: { opacity: 1, transform: 'scale(1.08)' }, e: OUT }, { t: te + 0.6, v: { opacity: 1, transform: 'scale(1)' } }]);
+    });
     startTogether(A);
     return new Promise((res) => {
       let t;

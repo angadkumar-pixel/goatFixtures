@@ -99,6 +99,22 @@ dialog::backdrop { background: rgba(2,4,14,0.72); }
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .sheet-foot { display: flex; justify-content: space-between; gap: 8px; margin-top: 4px; }
 
+.bulk-btn { width: 100%; margin-top: 8px; background: transparent; border-style: dashed; color: var(--gold); font-weight: 600; }
+#bulkDlg { width: min(560px, calc(100vw - 24px)); }
+#bulkDlg textarea { width: 100%; min-height: 150px; resize: vertical; background: #070c24; border: 1px solid var(--line2); border-radius: 9px; padding: 10px; color: var(--text); font: 14px/1.5 Inter, system-ui, sans-serif; margin-top: 10px; }
+.file-pick { display: block; margin-top: 12px; padding: 12px; border: 1px dashed var(--line2); border-radius: 10px; text-align: center; color: var(--gold); font-weight: 600; cursor: pointer; }
+.file-pick input { display: block; margin: 8px auto 0; color: var(--mute); font-size: 12px; }
+.bulk-preview { margin: 10px 0; max-height: 200px; overflow: auto; font-size: 13px; color: var(--mute); }
+.bulk-preview ol { margin: 6px 0 0; padding-left: 26px; color: var(--text); font: 700 15px 'Barlow Condensed', sans-serif; text-transform: uppercase; }
+.bulk-preview ol i { color: var(--gold); font-style: normal; margin: 0 5px; }
+.bulk-preview .bad { color: #ff8a98; }
+.win-label { color: var(--mute); font-size: 12px; text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; }
+.win-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.win-row .big { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button.small { padding: 6px 10px; font-size: 13px; color: var(--mute); }
+.big.stop { background: transparent; border-color: rgba(255,45,70,0.5); color: #ff8a98; }
+.why { margin: 0; color: #ffb3bc; font-size: 13px; }
+.done li .won { color: var(--gold); }
 #toasts { position: fixed; bottom: calc(16px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; z-index: 50;
   width: max-content; max-width: calc(100vw - 24px); }
 .toast { display: flex; align-items: center; gap: 12px; padding: 9px 10px 9px 14px; background: #1a2350; border: 1px solid var(--line2); border-radius: 11px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }

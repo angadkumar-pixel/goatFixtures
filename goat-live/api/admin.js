@@ -11,6 +11,7 @@ const FILES = {
   'login.html': { file: () => path.join(__dirname, '..', 'private', 'login.html'), type: 'text/html; charset=utf-8' },
   'admin.js': { file: () => path.join(__dirname, '..', 'private', 'admin.js'), type: 'text/javascript; charset=utf-8' },
   'admin.css': { file: () => path.join(__dirname, '..', 'private', 'admin.css'), type: 'text/css; charset=utf-8' },
+  'bulk.js': { file: () => path.join(__dirname, '..', 'private', 'bulk.js'), type: 'text/javascript; charset=utf-8' },
 };
 // read once per cold start; also try the project root in case the runtime lays files out differently
 function read(name) {
@@ -25,7 +26,7 @@ module.exports = (req, res) => {
     const f = req.query && req.query.f;
     let name;
     if (!f) name = admin ? 'admin.html' : 'login.html';
-    else if ((f === 'admin.js' || f === 'admin.css') && admin) name = f;
+    else if ((f === 'admin.js' || f === 'admin.css' || f === 'bulk.js') && admin) name = f;
     else { res.statusCode = admin ? 404 : 401; return res.end(admin ? 'Not found' : 'Not logged in'); }
     res.setHeader('Content-Type', FILES[name].type);
     res.setHeader('Cache-Control', 'no-store');

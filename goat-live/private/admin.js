@@ -60,7 +60,8 @@
       : '<li class="empty">Queue empty — add below</li>';
     $('#boardCount').textContent = `${S.matches.filter((m) => m.status === 'live').length}/${courts()} courts live`;
     $('#queueCount').textContent = queue.length ? `${queue.length} waiting` : '';
-    $('#doneList').innerHTML = S.done.slice(0, 100).map((m) => `<li><span>${vs(m)}</span><button type="button" data-restore="${m.id}">Restore</button></li>`).join('');
+    const result = (m) => m.winner ? `${m.winner === 'a' ? '<b class="won">🏆 ' + esc(m.a) + '</b>' : esc(m.a)}<i>V</i>${m.winner === 'b' ? '<b class="won">🏆 ' + esc(m.b) + '</b>' : esc(m.b)}` : vs(m);
+    $('#doneList').innerHTML = S.done.slice(0, 100).map((m) => `<li><span>${result(m)}</span><button type="button" data-restore="${m.id}">Restore</button></li>`).join('');
     $('#doneCount').textContent = S.done.length;
     $('#undoBtn').disabled = !S.canUndo;
     if (prevIds) document.querySelectorAll('.m').forEach((el) => { if (!prevIds.has(el.dataset.id)) el.classList.add('new'); });
@@ -87,20 +88,27 @@
     let h = '';
     if (m.status === 'live') {
       h = `<button type="button" class="big fin ${m.ending ? 'on' : ''}" data-act="ending">🔔 ${m.ending ? 'Finishing (tap to cancel)' : 'Finishing'}</button>
-        <button type="button" class="big end" data-act="end">End match</button>
+        <div class="win-label">End match — who won?</div>
+        <div class="win-row"><button type="button" class="big end" data-act="win-a">🏆 ${esc(m.a || 'Player A')}</button>
+          <button type="button" class="big end" data-act="win-b">🏆 ${esc(m.b || 'Player B')}</button></div>
+        <button type="button" class="ghost small" data-act="end">End without a result</button>
         <div class="line"><label>Court</label>${courtSel(m.court)}</div>`;
     } else if (m.status === 'called') {
       const left = Math.max(0, Math.round((m.callAt - GoatLive.now()) / 60000));
       h = `<div class="line"><label>Start in</label><input type="number" inputmode="numeric" min="0" max="120" value="${left}" data-field="mins"><label>min</label>
           <button type="button" data-act="setmins">Set</button></div>
         <button type="button" class="big go" data-act="startnow">▶ Start now</button>
+        <button type="button" class="big stop" data-act="stop">■ Stop countdown (back to waiting)</button>
         <div class="line"><label>Court</label>${courtSel(m.court)}</div>`;
     } else {
-      const full = onCourt() >= courts();
+      const full = onCourt() >= courts(), offBoard = idx(m.id) >= N();
+      const why = offBoard ? 'Drag it onto the board to start it' : full ? `All ${courts()} courts busy` : '';
       h = `<div class="line"><label>Delay by</label><input type="number" inputmode="numeric" min="0" max="180" value="${m.delay || 0}" data-field="delay"><label>min</label>
           <button type="button" data-act="setdelay">Set</button></div>
         <div class="line"><label>Court</label>${courtSel(m.readyCourt || '', 'startCourt')}</div>
-        <button type="button" class="big start" data-act="start" ${full ? 'disabled' : ''}>${full ? `All ${courts()} courts busy` : '● Start match now'}</button>`;
+        ${why ? `<p class="why">${why}</p>` : ''}
+        <button type="button" class="big go" data-act="call" ${why ? 'disabled' : ''}>📣 Call to court (${(S.settings && S.settings.callMinutes) || 5} min countdown)</button>
+        <button type="button" class="big start" data-act="start" ${why ? 'disabled' : ''}>● Start match now</button>`;
     }
     $('#sheetActs').innerHTML = h;
     if (resetForm) { const f = $('#editForm'); f.a.value = m.a; f.b.value = m.b; }
@@ -111,6 +119,13 @@
     const a = b.dataset.act;
     if (a === 'ending') act('ending', { id: m.id, on: !m.ending });
     else if (a === 'end') { sheet.close(); endMatch(m); }
+    else if (a === 'win-a' || a === 'win-b') { sheet.close(); endMatch(m, a.slice(4)); }
+    else if (a === 'stop') { await act('live', { id: m.id, live: false }); toast('Countdown stopped'); }
+    else if (a === 'call') {
+      const c = $('#sheetActs [data-field=startCourt]').value;
+      const r = await act('call', c ? { id: m.id, court: c } : { id: m.id });
+      if (r && r.called) { toast(`${m.a} v ${m.b} called to Court ${r.called.court}`); sheet.close(); }
+    }
     else if (a === 'startnow') { await act('live', { id: m.id, live: true }); sheet.close(); }
     else if (a === 'start') {
       const c = $('#sheetActs [data-field=startCourt]').value;
@@ -150,12 +165,38 @@
   sheet.querySelectorAll('[data-close]').forEach((b) => (b.onclick = () => sheet.close()));
   sheet.addEventListener('click', (e) => { if (e.target === sheet) sheet.close(); }); // tap outside closes
 
-  async function endMatch(m) {
-    const r = await act('end', { id: m.id });
+  async function endMatch(m, winner) {
+    const r = await act('end', winner ? { id: m.id, winner } : { id: m.id });
     if (!r) return;
     const next = r.called ? ` · ${r.called.a} v ${r.called.b} → Court ${r.called.court}` : '';
-    toast(`Ended ${m.a} v ${m.b}${next}`, { action: { label: 'Undo', fn: () => act('undo') }, ms: 8000 });
+    const won = winner ? `${winner === 'a' ? m.a : m.b} won` : `Ended ${m.a} v ${m.b}`;
+    toast(`${won}${next}`, { action: { label: 'Undo', fn: () => act('undo') }, ms: 8000 });
   }
+
+  // ── bulk add: Excel / CSV file, pasted cells, lines, or a paragraph → preview → add in order ──
+  const bulkDlg = $('#bulkDlg');
+  let bulkItems = [];
+  function showBulk(items, note) {
+    bulkItems = items;
+    const b = $('#bulkAdd');
+    b.disabled = !items.length;
+    b.textContent = items.length ? `Add ${items.length} match${items.length > 1 ? 'es' : ''} to the queue` : 'Add';
+    $('#bulkPreview').innerHTML = note ? `<p class="bad">${esc(note)}</p>`
+      : items.length ? `<span>${items.length} found, in this order:</span><ol>${items.map((x) => `<li>${esc(x.a)}<i>V</i>${esc(x.b)}</li>`).join('')}</ol>`
+      : '<span>Nothing recognised yet.</span>';
+  }
+  $('#bulkBtn').onclick = () => { $('#bulkText').value = ''; $('#bulkFile').value = ''; showBulk([]); bulkDlg.showModal(); };
+  $('#bulkText').addEventListener('input', (e) => showBulk(GoatBulk.parseText(e.target.value)));
+  $('#bulkFile').addEventListener('change', async (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    try { showBulk(await GoatBulk.readFile(f)); } catch (err) { showBulk([], err.message); }
+  });
+  $('#bulkAdd').onclick = async () => {
+    if (!bulkItems.length) return;
+    const r = await act('add', { items: bulkItems, where: 'end' });
+    if (r) { toast(`Added ${bulkItems.length} matches to the queue`); bulkDlg.close(); }
+  };
+  bulkDlg.querySelectorAll('[data-close]').forEach((b) => (b.onclick = () => bulkDlg.close()));
 
   // tap a row or a court card → open the sheet
   for (const el of [boardList, queueList]) {
