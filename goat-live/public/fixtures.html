@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#04061a">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<title>Live Fixtures · THE GOAT</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Barlow+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/board.css">
+</head>
+<body>
+<div id="viewport">
+  <div class="bg-light"></div>
+  <div class="bg-dark" id="bgDark"></div>
+  <div id="stage">
+    <div class="beams" id="beams"></div>
+    <div id="cam">
+      <div class="panel-glow" id="panelGlow"></div>
+      <div class="panel" id="panel"><div class="stripes"></div><div class="sweep" id="sweep"></div></div>
+      <svg class="trace" id="traceSvg"><rect id="traceGlow" rx="36"/><rect id="trace" rx="36"/></svg>
+      <div class="heading" id="heading">
+        <div class="kicker"><span class="rule l"></span><span id="title"></span><span class="rule r"></span></div>
+        <div class="big">FIXTURES</div>
+        <div class="sub" id="subtitle"></div>
+      </div>
+      <div class="chrome" id="chrome">
+        <div class="status" id="status"><span class="dot"></span><b id="liveCount">0</b>&nbsp;ON COURT<span class="deck" id="deck"></span></div>
+        <div class="clock" id="clock"><span id="clockHM">--:--</span><span class="sec" id="clockS">:--</span></div>
+        <div class="more" id="more"></div>
+      </div>
+      <div class="spot" id="spot"></div>
+      <div id="rows"></div>
+    </div>
+  </div>
+</div>
+<div class="conn" id="conn">Reconnecting…</div>
+<div class="hud" id="hud">
+  <a href="/">← Home</a>
+  <button id="fsBtn" type="button">Fullscreen <kbd>F</kbd></button>
+</div>
+<script src="/js/live.js"></script>
+<script src="/js/board.js"></script>
+</body>
+</html>

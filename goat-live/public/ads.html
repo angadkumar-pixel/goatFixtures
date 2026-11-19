@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Slideshow · THE GOAT</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Barlow+Condensed:wght@600;700&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; font-family: 'Barlow Condensed', sans-serif; color: #fff; }
+  body.idle { cursor: none; }
+  .slide { position: absolute; inset: 0; opacity: 0; transition: opacity 1.2s ease; display: grid; place-items: center; overflow: hidden; }
+  .slide.on { opacity: 1; }
+  .slide .blur { position: absolute; inset: -40px; background-size: cover; background-position: center; filter: blur(40px) brightness(0.45); transform: scale(1.1); }
+  .slide.is-video { background: radial-gradient(60% 80% at 50% 50%, #0f1a52 0%, #070b26 55%, #020309 100%); }
+  .slide img, .slide video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+  .slide.on img { animation: kb var(--dur, 8s) ease-out forwards; }
+  @keyframes kb { from { transform: scale(1); } to { transform: scale(1.06); } }
+  .bar { position: fixed; left: 0; bottom: 0; height: 4px; background: #fcc500; width: 0; box-shadow: 0 0 12px #fcc500; }
+  .hud { position: fixed; top: 14px; left: 14px; display: flex; gap: 8px; opacity: 0; transition: opacity 0.3s; z-index: 5; }
+  .hud.show { opacity: 1; }
+  .hud a, .hud button { font: 600 15px system-ui, sans-serif; color: #fff; background: rgba(6,11,38,0.8); border: 1px solid rgba(255,255,255,0.2); border-radius: 8px;
+    padding: 8px 12px; text-decoration: none; cursor: pointer; }
+  .empty { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 16px;
+    background: linear-gradient(160deg, #1550ff 0%, #022dc6 45%, #011a86 100%); }
+  .empty h1 { font-family: 'Anton', sans-serif; font-weight: 400; font-size: clamp(40px, 8vw, 110px); margin: 0; letter-spacing: 0.06em; }
+  .empty p { font-size: 22px; letter-spacing: 0.1em; color: #fcc500; text-transform: uppercase; }
+  @media (prefers-reduced-motion: reduce) { .slide.on img { animation: none; } }
+</style>
+</head>
+<body>
+<div id="show"></div>
+<div class="bar" id="bar"></div>
+<div class="hud" id="hud"><a href="/">← Home</a><button id="fsBtn" type="button">Fullscreen (F)</button></div>
+<script src="/js/live.js"></script>
+<script>
+(() => {
+  const show = document.getElementById('show'), bar = document.getElementById('bar');
+  let ads = [], i = -1, secs = 8, timer, current = null, soundOn = true;
+  // Sound is always on. Browsers only refuse it when nobody has clicked yet (page opened by typing the URL);
+  // then the video starts muted and the very first click or key press anywhere brings the sound in. No button.
+  function enableSound() {
+    soundOn = true;
+    if (current) { current.muted = false; current.play().catch(() => {}); }
+  }
+  for (const ev of ['pointerdown', 'keydown', 'touchstart']) addEventListener(ev, () => { if (!soundOn) enableSound(); }, { capture: true });
+  // Opened inside the home page's fullscreen player: "Home" / Escape close the player instead of navigating.
+  const EMBEDDED = window.top !== window;
+  const goHome = () => (EMBEDDED ? parent.postMessage('goat-close-ads', location.origin) : (location.href = '/'));
+  GoatLive.connect((s) => { secs = (s.settings && s.settings.adSeconds) || 8; });
+
+  function next() {
+    clearTimeout(timer);
+    if (!ads.length) return;
+    i = (i + 1) % ads.length;
+    const ad = ads[i];
+    const el = document.createElement('div');
+    el.className = 'slide';
+    el.style.setProperty('--dur', secs + 2 + 's');
+    if (ad.video) {
+      el.classList.add('is-video'); // empty sides get a calm brand backdrop (see .is-video)
+      el.innerHTML = '<video playsinline></video>';
+      const v = el.querySelector('video');
+      v.src = ad.src;
+      v.muted = !soundOn;
+      v.onended = next; v.onerror = next;
+      current = v;
+      v.play().catch(() => { soundOn = false; v.muted = true; v.play().catch(next); });
+      bar.style.transition = 'none'; bar.style.width = '0';
+    } else {
+      el.innerHTML = `<div class="blur" style="background-image:url('${ad.src}')"></div><img alt="" src="${ad.src}">`;
+      bar.style.transition = 'none'; bar.style.width = '0'; void bar.offsetWidth;
+      bar.style.transition = `width ${secs}s linear`; bar.style.width = '100%';
+      timer = setTimeout(next, secs * 1000);
+    }
+    show.append(el);
+    requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('on')));
+    const old = [...show.children].slice(0, -1);
+    setTimeout(() => old.forEach((o) => o.remove()), 1300);
+  }
+
+  async function load() {
+    try { ads = await (await fetch('/api/ads')).json(); } catch { ads = []; }
+    if (!ads.length) {
+      show.innerHTML = '<div class="empty"><div><h1>SLIDESHOW</h1><p>Drop images or videos into the <b>public/ads</b> folder</p></div></div>';
+      return setTimeout(load, 10000);
+    }
+    next();
+  }
+  load();
+  setInterval(async () => { try { const fresh = await (await fetch('/api/ads')).json(); if (fresh.length) ads = fresh; } catch {} }, 60000);
+
+  const hud = document.getElementById('hud'); let idle;
+  addEventListener('mousemove', () => { hud.classList.add('show'); document.body.classList.remove('idle'); clearTimeout(idle);
+    idle = setTimeout(() => { hud.classList.remove('show'); document.body.classList.add('idle'); }, 2500); });
+  const fs = () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()).catch(() => {});
+  document.getElementById('fsBtn').onclick = fs;
+  // ← previous slide, → next slide (also swipe on phones)
+  const prev = () => { if (!ads.length) return; i = (i - 2 + ads.length * 2) % ads.length; next(); };
+  addEventListener('keydown', (e) => {
+    if (e.key === 'f' || e.key === 'F') fs();
+    if (e.key === 'ArrowRight') next();
+    if (e.key === 'ArrowLeft') prev();
+    if (e.key === 'Escape' && (EMBEDDED || !document.fullscreenElement)) goHome();
+  });
+  let sx = null;
+  addEventListener('touchstart', (e) => { sx = e.touches[0].clientX; }, { passive: true });
+  addEventListener('touchend', (e) => {
+    if (sx == null) return;
+    const dx = e.changedTouches[0].clientX - sx; sx = null;
+    if (Math.abs(dx) > 60) (dx < 0 ? next : prev)();
+  }, { passive: true });
+  document.querySelector('.hud a').onclick = (e) => { e.preventDefault(); goHome(); };
+  if (EMBEDDED) document.getElementById('fsBtn').remove();
+})();
+</script>
+</body>
+</html>

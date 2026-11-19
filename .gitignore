@@ -1,0 +1,10 @@
+# local only — never commit
+goat-live/data/
+.ptest/
+.test-goat/
+.vt-prof/
+.shots/
+.impeccable/
+**/.impeccable/
+node_modules/
+*.log
