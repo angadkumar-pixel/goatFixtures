@@ -316,7 +316,7 @@
     if (!S) return;
     const on = !!(S.settings && S.settings.notify);
     $('#waBadge').textContent = on ? (wa.ready ? 'ON' : 'ON · test mode') : 'OFF';
-    $('#waMode').textContent = wa.ready ? `Sending through ${wa.provider === 'meta' ? 'Meta' : 'Gupshup'}` : 'Test mode: nothing is sent until the Gupshup keys and templates are added in Vercel';
+    $('#waMode').textContent = wa.ready ? `Sending through ${wa.provider === 'meta' ? 'Meta' : wa.provider === 'gupshup-enterprise' ? 'Gupshup (Enterprise)' : 'Gupshup'}` : 'Test mode: nothing is sent until the Gupshup keys and templates are added in Vercel';
     const t = $('#waToggle'); t.textContent = on ? 'Messages ON' : 'Messages OFF'; t.className = on ? 'on' : '';
     const kind = { soon: 'Coming up', next: "You're next", later: 'Moved later' };
     $('#waLog').innerHTML = waLog.length ? waLog.map((e) => {
@@ -325,6 +325,16 @@
     }).join('') : '<li>No messages yet.</li>';
   }
   $('#waToggle').onclick = () => act('settings', { settings: { notify: !(S.settings && S.settings.notify) } });
+  $('#waTest').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = e.target, out = $('#waTestResult');
+    out.className = 'wa-test-result'; out.textContent = 'Sending…';
+    try {
+      const r = await (await fetch('/api/wa-test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phone: f.phone.value, kind: f.kind.value }) })).json();
+      out.className = 'wa-test-result ' + (r.ok ? 'ok' : 'bad');
+      out.textContent = r.ok ? `Sent to ${r.to} ✓ — check WhatsApp. (Gupshup id ${r.id || '-'})` : `Not sent: ${r.error}`;
+    } catch { out.className = 'wa-test-result bad'; out.textContent = 'Could not reach the server'; }
+  });
   refreshAdminData();
   setInterval(() => { if ($('#waBox').open) refreshAdminData(); }, 10000);
 

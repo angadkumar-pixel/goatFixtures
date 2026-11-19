@@ -13,8 +13,10 @@
 const BOARD = 10;
 const env = (k) => (process.env[k] || '').trim();
 const TPL = { soon: env('WA_TEMPLATE_SOON'), next: env('WA_TEMPLATE_NEXT'), later: env('WA_TEMPLATE_LATER') };
-const PROVIDER = env('WA_PROVIDER').toLowerCase() || (env('GUPSHUP_API_KEY') ? 'gupshup' : env('META_TOKEN') ? 'meta' : '');
+// gupshup-enterprise = Client ID + Secret Token (Gupshup Conversation Cloud → WhatsApp API → Credentials)
+const PROVIDER = env('WA_PROVIDER').toLowerCase() || (env('GUPSHUP_USERID') ? 'gupshup-enterprise' : env('GUPSHUP_API_KEY') ? 'gupshup' : env('META_TOKEN') ? 'meta' : '');
 function configured() {
+  if (PROVIDER === 'gupshup-enterprise') return !!(env('GUPSHUP_USERID') && env('GUPSHUP_TOKEN') && TPL.soon && TPL.next && TPL.later);
   if (PROVIDER === 'gupshup') return !!(env('GUPSHUP_API_KEY') && env('GUPSHUP_SOURCE') && env('GUPSHUP_APP_NAME') && TPL.soon && TPL.next && TPL.later);
   if (PROVIDER === 'meta') return !!(env('META_TOKEN') && env('META_PHONE_NUMBER_ID') && TPL.soon && TPL.next && TPL.later);
   return false;
@@ -57,7 +59,7 @@ function params(kind, m, side) {
   return [me, them];
 }
 const PREVIEW = {
-  soon: (p) => `Hi ${p[0]}, your match vs ${p[1]} at THE GOAT Badminton Tournament is expected to start in about 30 minutes. Please be at the venue and ready.`,
+  soon: (p) => `Hi ${p[0]}, your match vs ${p[1]} at THE GOAT Badminton Tournament is expected to start in about 30 minutes . Please be at the venue and ready.`,
   next: (p) => `Hi ${p[0]}, your match vs ${p[1]} is NEXT. Please report to court No. ${p[2]}. Good Luck!`,
   later: (p) => `Hi ${p[0]}, sorry for the inconvenience — your match vs ${p[1]} has been moved a little later. We'll message you again when it's your turn.`,
 };
@@ -66,6 +68,18 @@ async function deliver(to, kind, p) {
   if (!configured()) return { ok: true, test: true };
   const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 6000);
   try {
+    if (PROVIDER === 'gupshup-enterprise') {
+      const body = new URLSearchParams({ send_to: to, msg_type: 'text', userid: env('GUPSHUP_USERID'), auth_scheme: 'plain', v: '1.1', format: 'json',
+        method: 'SendMessage', isHSM: 'true', isTemplate: 'true', whatsAppTemplateId: TPL[kind] });
+      p.forEach((v, i) => body.append('var' + (i + 1), v)); // {{1}}, {{2}}, {{3}} → var1, var2, var3
+      const r = await fetch('https://mediaapi.smsgupshup.com/GatewayAPI/rest', { method: 'POST', signal: ctl.signal,
+        headers: { Authorization: 'Bearer ' + env('GUPSHUP_TOKEN'), 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+      const text = await r.text();
+      let j = {}; try { j = JSON.parse(text); } catch {}
+      const resp = j.response || j.data || j;
+      return r.ok && String(resp.status || '').toLowerCase() === 'success' ? { ok: true, id: resp.id }
+        : { ok: false, error: (resp.details || resp.message || text || 'HTTP ' + r.status).toString().slice(0, 200) };
+    }
     if (PROVIDER === 'gupshup') {
       const body = new URLSearchParams({ channel: 'whatsapp', source: env('GUPSHUP_SOURCE'), destination: to, 'src.name': env('GUPSHUP_APP_NAME'),
         template: JSON.stringify({ id: TPL[kind], params: p }) });
@@ -102,4 +116,14 @@ async function run(prev, next, { contacts, sent, enabled }) {
   return { sentPatch, log: await Promise.all(jobs) };
 }
 
-module.exports = { run, detect, normPhone, status, configured, PREVIEW };
+// One real message to check the setup (Control Room → WhatsApp → Send test).
+async function testSend(phone, kind = 'next') {
+  const to = normPhone(phone);
+  if (!to) return { ok: false, error: 'Enter a valid mobile number' };
+  if (!configured()) return { ok: false, error: 'Not set up yet: add the Gupshup settings in Vercel and redeploy' };
+  const p = kind === 'next' ? ['Test Player', 'Sample Opponent', '1'] : ['Test Player', 'Sample Opponent'];
+  const r = await deliver(to, kind, p);
+  return Object.assign({ to: '+' + to, text: PREVIEW[kind](p) }, r);
+}
+
+module.exports = { run, detect, normPhone, status, configured, PREVIEW, testSend };

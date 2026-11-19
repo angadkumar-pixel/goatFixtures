@@ -158,6 +158,11 @@ http.createServer(async (req, res) => {
       res.setHeader('Set-Cookie', auth.makeCookie(SECRET, false));
       return send(res, 200, { ok: true });
     }
+    if (p === '/api/wa-test' && req.method === 'POST') {
+      if (!admin) return send(res, 401, { error: 'Not logged in' });
+      const b = await readJson(req);
+      return send(res, 200, await notify.testSend(b.phone, ['soon', 'next', 'later'].includes(b.kind) ? b.kind : 'next'));
+    }
     if (p === '/api/admin-data') {
       if (!admin) return send(res, 401, { error: 'Not logged in' });
       return send(res, 200, { contacts: contactsOf(), log: outbox.log.slice(0, 150), whatsapp: notify.status() });

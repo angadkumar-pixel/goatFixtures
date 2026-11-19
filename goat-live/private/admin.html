@@ -42,6 +42,12 @@
     <details class="wa" id="waBox">
       <summary>WhatsApp messages <span id="waBadge"></span></summary>
       <div class="wa-head"><span id="waMode"></span><button type="button" id="waToggle"></button></div>
+      <form class="wa-test" id="waTest" autocomplete="off">
+        <input name="phone" type="tel" placeholder="Your number to test" maxlength="20" required>
+        <select name="kind"><option value="next">“You're next”</option><option value="soon">“Coming up”</option><option value="later">“Moved later”</option></select>
+        <button type="submit">Send test</button>
+      </form>
+      <p class="wa-test-result" id="waTestResult"></p>
       <ol class="wa-log" id="waLog"></ol>
     </details>
   </section>
