@@ -31,31 +31,35 @@ function normPhone(p) {
   else if (d.length === 11 && d[0] === '0') d = '91' + d.slice(1);
   return d.length >= 10 && d.length <= 15 ? d : '';
 }
-const hm = (t) => new Date(t).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' });
 
 // Compare before/after and list the messages that are due. `sent[id]` = {soon, next, later} timestamps.
 function detect(prev, next, sent) {
+  const before = new Map((prev ? prev.matches : []).map((m) => [m.id, m]));
   const events = [];
   next.matches.forEach((m, i) => {
     const s = sent[m.id] || {};
     const toldNext = !!s.next && !(s.later && s.later >= s.next); // a "you're next" is currently standing
-    if (m.status === 'called' && !toldNext) events.push({ kind: 'next', m });                  // called to a court
+    const p = before.get(m.id), startedNow = m.status === 'live' && p && p.status === 'queued'; // started straight from the queue just now
+    if ((m.status === 'called' || startedNow) && !toldNext) events.push({ kind: 'next', m }); // called to a court / started directly
     else if (m.status === 'queued' && toldNext) events.push({ kind: 'later', m });              // was told "next", now pushed back
     else if (m.status === 'queued' && i < BOARD && !s.soon && !s.next) events.push({ kind: 'soon', m }); // first time in the top 10
   });
   return events;
 }
 
-function params(kind, m, side, now) {
+// Variables, matching the approved Gupshup templates:
+//   soon  {{1}} player {{2}} opponent            "…is expected to start in about 30 minutes…"
+//   next  {{1}} player {{2}} opponent {{3}} court "…is NEXT on Court {{3}}. Please report to Court {{3}}."
+//   later {{1}} player {{2}} opponent
+function params(kind, m, side) {
   const me = side === 'a' ? m.a : m.b, them = side === 'a' ? m.b : m.a;
-  if (kind === 'soon') return [me, them, String(Math.max(5, Math.round(((m.time || now) - now) / 60000))), hm(m.time || now)];
-  if (kind === 'next') return [me, them, String(m.court || '-'), String(Math.max(0, Math.round(((m.callAt || now) - now) / 60000)))];
+  if (kind === 'next') return [me, them, String(m.court || '-')];
   return [me, them];
 }
 const PREVIEW = {
-  soon: (p) => `Hi ${p[0]}, your match vs ${p[1]} is expected to start in about ${p[2]} minutes (around ${p[3]}).`,
-  next: (p) => `Hi ${p[0]}, your match vs ${p[1]} is NEXT on Court ${p[2]}. Please report now — play starts in about ${p[3]} min.`,
-  later: (p) => `Hi ${p[0]}, sorry for the inconvenience — your match vs ${p[1]} has been moved a little later. We'll message you when it's your turn.`,
+  soon: (p) => `Hi ${p[0]}, your match vs ${p[1]} at THE GOAT Badminton Tournament is expected to start in about 30 minutes. Please be at the venue and ready.`,
+  next: (p) => `Hi ${p[0]}, your match vs ${p[1]} is NEXT on Court ${p[2]}. Please report to Court ${p[2]}.`,
+  later: (p) => `Hi ${p[0]}, sorry for the inconvenience — your match vs ${p[1]} has been moved a little later. We'll message you again when it's your turn.`,
 };
 
 async function deliver(to, kind, p) {
@@ -89,7 +93,7 @@ async function run(prev, next, { contacts, sent, enabled }) {
     const c = contacts[m.id] || {};
     for (const side of ['a', 'b']) {
       const to = normPhone(c[side]);
-      const p = params(kind, m, side, now);
+      const p = params(kind, m, side);
       const entry = { at: now, kind, to: to ? '+' + to : '', name: side === 'a' ? m.a : m.b, text: PREVIEW[kind](p) };
       if (!to) { jobs.push(Promise.resolve(Object.assign(entry, { status: 'no number' }))); continue; }
       jobs.push(deliver(to, kind, p).then((r) => Object.assign(entry, { status: r.test ? 'test (not sent)' : r.ok ? 'sent' : 'failed: ' + r.error })));
