@@ -58,7 +58,7 @@ function params(kind, m, side) {
 }
 const PREVIEW = {
   soon: (p) => `Hi ${p[0]}, your match vs ${p[1]} at THE GOAT Badminton Tournament is expected to start in about 30 minutes. Please be at the venue and ready.`,
-  next: (p) => `Hi ${p[0]}, your match vs ${p[1]} is NEXT on Court ${p[2]}. Please report to Court ${p[2]}.`,
+  next: (p) => `Hi ${p[0]}, your match vs ${p[1]} is NEXT. Please report to court No. ${p[2]}. Good Luck!`,
   later: (p) => `Hi ${p[0]}, sorry for the inconvenience — your match vs ${p[1]} has been moved a little later. We'll message you again when it's your turn.`,
 };
 
