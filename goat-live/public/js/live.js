@@ -19,7 +19,7 @@ window.GoatLive = (() => {
 
   // ── Firebase mode ──
   function firebase() {
-    let tree = {}, es = null, fails = 0, emitT = null;
+    let tree = {}, es = null, fails = 0, emitT = null, lastState = null;
     const syncClock = () => getJSON('/api/time').then((t) => { offset = t.now - Date.now(); }).catch(() => {});
     syncClock(); setInterval(syncClock, 5 * 60000);
     function setPath(path, value) {
@@ -36,7 +36,7 @@ window.GoatLive = (() => {
         const st = S.toState(tree);
         S.normalize(st, now()); // tentative times are worked out on the device
         st.boardSize = 10; st.now = now(); st.transport = 'firebase';
-        if (st.rev >= lastRev) { lastRev = st.rev; cb(st); }
+        if (st.rev >= lastRev) { lastRev = st.rev; lastState = st; cb(st); }
         pokeCountdowns(st);
       }, 30);
     }
@@ -52,7 +52,10 @@ window.GoatLive = (() => {
         setTimeout(() => fetch('/api/tick', { method: 'POST' }).catch(() => {}), Math.random() * 1500);
       });
     }
-    setInterval(() => { if (lastRev >= 0) emit(); }, 1000); // keeps countdowns/time estimates current without any network
+    // Tentative times drift with the clock, so refresh them now and then. Countdowns tick on their own in each page,
+    // so there is no need to rebuild 300 matches every second (that made weak screens stutter).
+    setInterval(() => { if (lastRev >= 0) emit(); }, 20000);
+    setInterval(() => { if (lastState) pokeCountdowns(lastState); }, 1000); // a countdown reaching 0 still starts the match on time
     function open() {
       es = new EventSource(CFG.dbUrl.replace(/\/+$/, '') + '/goat.json');
       const onData = (patch) => (e) => {
