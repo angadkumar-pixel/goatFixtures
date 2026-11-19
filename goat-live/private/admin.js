@@ -318,7 +318,7 @@
     if (!S) return;
     const on = !!(S.settings && S.settings.notify);
     $('#waBadge').textContent = on ? (wa.ready ? 'ON' : 'ON · test mode') : 'OFF';
-    $('#waMode').textContent = wa.ready ? `Sending through ${wa.provider === 'meta' ? 'Meta' : wa.provider === 'gupshup-enterprise' ? 'Gupshup (Enterprise)' : 'Gupshup'}` : 'Test mode: nothing is sent until the Gupshup keys and templates are added in Vercel';
+    $('#waMode').textContent = wa.ready ? `Sending through ${wa.provider === 'meta' ? 'Meta' : wa.provider === 'gupshup-enterprise' ? 'Gupshup (Enterprise)' : 'Gupshup'}` : 'Test mode — missing in Vercel: ' + ((wa.missing || []).join(', ') || 'settings') + ' (then Redeploy)';
     const t = $('#waToggle'); t.textContent = on ? 'Messages ON' : 'Messages OFF'; t.className = on ? 'on' : '';
     const kind = { soon: 'Coming up', next: "You're next", later: 'Moved later' };
     $('#waLog').innerHTML = waLog.length ? waLog.map((e) => {

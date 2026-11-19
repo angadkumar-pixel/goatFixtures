@@ -14,14 +14,28 @@ const BOARD = 10;
 const env = (k) => (process.env[k] || '').trim();
 const TPL = { soon: env('WA_TEMPLATE_SOON'), next: env('WA_TEMPLATE_NEXT'), later: env('WA_TEMPLATE_LATER') };
 // gupshup-enterprise = Client ID + Secret Token (Gupshup Conversation Cloud → WhatsApp API → Credentials)
-const PROVIDER = env('WA_PROVIDER').toLowerCase() || (env('GUPSHUP_USERID') ? 'gupshup-enterprise' : env('GUPSHUP_API_KEY') ? 'gupshup' : env('META_TOKEN') ? 'meta' : '');
+// Chosen from the credentials that exist (WA_PROVIDER only matters if both Gupshup kinds are present).
+const PROVIDER = (() => {
+  const want = env('WA_PROVIDER').toLowerCase();
+  const ent = !!(env('GUPSHUP_USERID') && env('GUPSHUP_TOKEN')), self = !!env('GUPSHUP_API_KEY'), meta = !!env('META_TOKEN');
+  if (want === 'meta' && meta) return 'meta';
+  if (ent && (!self || want === 'gupshup-enterprise')) return 'gupshup-enterprise';
+  if (self) return 'gupshup';
+  if (meta) return 'meta';
+  return ent ? 'gupshup-enterprise' : '';
+})();
+// what's missing, shown in the Control Room so setup problems are obvious
+function missing() {
+  const need = PROVIDER === 'meta' ? ['META_TOKEN', 'META_PHONE_NUMBER_ID'] : PROVIDER === 'gupshup' ? ['GUPSHUP_API_KEY', 'GUPSHUP_SOURCE', 'GUPSHUP_APP_NAME'] : ['GUPSHUP_USERID', 'GUPSHUP_TOKEN'];
+  return need.concat(['WA_TEMPLATE_SOON', 'WA_TEMPLATE_NEXT', 'WA_TEMPLATE_LATER']).filter((k) => !env(k));
+}
 function configured() {
   if (PROVIDER === 'gupshup-enterprise') return !!(env('GUPSHUP_USERID') && env('GUPSHUP_TOKEN') && TPL.soon && TPL.next && TPL.later);
   if (PROVIDER === 'gupshup') return !!(env('GUPSHUP_API_KEY') && env('GUPSHUP_SOURCE') && env('GUPSHUP_APP_NAME') && TPL.soon && TPL.next && TPL.later);
   if (PROVIDER === 'meta') return !!(env('META_TOKEN') && env('META_PHONE_NUMBER_ID') && TPL.soon && TPL.next && TPL.later);
   return false;
 }
-const status = () => ({ provider: PROVIDER || 'none', ready: configured() });
+const status = () => ({ provider: PROVIDER || 'none', ready: configured(), missing: missing() });
 
 // Indian numbers: 98765 43210 / 098765… / +91 98765… → 919876543210
 function normPhone(p) {
@@ -120,7 +134,7 @@ async function run(prev, next, { contacts, sent, enabled }) {
 async function testSend(phone, kind = 'next') {
   const to = normPhone(phone);
   if (!to) return { ok: false, error: 'Enter a valid mobile number' };
-  if (!configured()) return { ok: false, error: 'Not set up yet: add the Gupshup settings in Vercel and redeploy' };
+  if (!configured()) return { ok: false, error: 'Not set up yet. Missing in Vercel: ' + missing().join(', ') + ' — add them, then Redeploy' };
   const p = kind === 'next' ? ['Test Player', 'Sample Opponent', '1'] : ['Test Player', 'Sample Opponent'];
   const r = await deliver(to, kind, p);
   return Object.assign({ to: '+' + to, text: PREVIEW[kind](p) }, r);
