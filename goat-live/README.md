@@ -59,7 +59,7 @@ sends only the matches that changed (usually under 1 KB). Phones work out the te
 Vercel → Settings → Environment Variables:
 - `ADMIN_PASSWORD`: the Control Room password
 - `FIREBASE_DB_URL`: e.g. `https://goat-fixtures-default-rtdb.asia-southeast1.firebasedatabase.app`
-- `FIREBASE_SERVICE_ACCOUNT`: the whole service-account JSON file (Firebase → Project settings → Service accounts → Generate new private key)
+- `FIREBASE_DB_SECRET`: Firebase → Project settings → Service accounts → Database secrets → Show → copy (or `FIREBASE_SERVICE_ACCOUNT` with a service-account JSON key, if your organisation allows keys)
 
 Firebase Realtime Database → Rules:
 ```json

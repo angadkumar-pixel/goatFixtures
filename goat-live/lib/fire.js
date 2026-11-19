@@ -30,9 +30,19 @@ async function accessToken() {
   return cached.token;
 }
 
+// Two ways to sign in: FIREBASE_DB_SECRET (Project settings → Service accounts → Database secrets — simplest,
+// works even when the organisation blocks key creation) or FIREBASE_SERVICE_ACCOUNT (a service-account JSON key).
+const DB_SECRET = (process.env.FIREBASE_DB_SECRET || '').trim();
+async function authParam() {
+  if (DB_SECRET && !process.env.FIREBASE_TEST_TOKEN) return 'auth=' + encodeURIComponent(DB_SECRET);
+  if (!DB_SECRET && !process.env.FIREBASE_SERVICE_ACCOUNT && !process.env.FIREBASE_TEST_TOKEN)
+    throw new Error('Set FIREBASE_DB_SECRET (Firebase → Project settings → Service accounts → Database secrets) in Vercel → Settings → Environment Variables.');
+  return 'access_token=' + encodeURIComponent(await accessToken());
+}
+
 async function req(method, path, { body, query = '', headers = {} } = {}) {
   if (!DB) throw new Error('FIREBASE_DB_URL is not set in Vercel → Settings → Environment Variables.');
-  const url = `${DB}/${path}.json?access_token=${encodeURIComponent(await accessToken())}${query}`;
+  const url = `${DB}/${path}.json?${await authParam()}${query}`;
   const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json', ...headers }, body: body === undefined ? undefined : JSON.stringify(body) });
   const text = await r.text();
   let data = null; try { data = text ? JSON.parse(text) : null; } catch { data = text; }
