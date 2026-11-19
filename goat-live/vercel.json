@@ -1,17 +1,37 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
   "buildCommand": "node scripts/build.js",
   "outputDirectory": "public",
   "cleanUrls": true,
   "rewrites": [
-    { "source": "/admin", "destination": "/api/admin" },
-    { "source": "/admin/:file", "destination": "/api/admin?f=:file" },
-    { "source": "/api/ads", "destination": "/ads-list.json" }
+    {
+      "source": "/admin",
+      "destination": "/api/admin"
+    },
+    {
+      "source": "/admin/:file",
+      "destination": "/api/admin?f=:file"
+    },
+    {
+      "source": "/api/ads",
+      "destination": "/ads-list.json"
+    }
   ],
   "functions": {
-    "api/admin.js": { "includeFiles": "private/**" }
+    "api/admin.js": {
+      "includeFiles": "private/**"
+    }
   },
   "headers": [
-    { "source": "/ads/(.*)", "headers": [{ "key": "Cache-Control", "value": "public, max-age=86400" }] }
+    {
+      "source": "/ads/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=86400"
+        }
+      ]
+    }
   ]
 }

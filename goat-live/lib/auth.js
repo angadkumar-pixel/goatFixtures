@@ -1,4 +1,4 @@
-// Admin login: a signed, expiring cookie (no sessions to store). Shared by server.js and api/*.js.
+// Admin login: a signed, expiring cookie (no sessions to store). Shared by wifi-server.js and api/*.js.
 const crypto = require('crypto');
 
 const COOKIE = 'goat_admin';

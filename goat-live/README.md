@@ -5,10 +5,10 @@ Match-day system for the tournament: a public home page, a live fixtures board (
 No install needed, just Node 18+:
 
 ```
-node server.js
+node wifi-server.js
 ```
 
-The console prints the addresses and the **admin password** (generated on first run and saved in `data/admin-password.txt`). To set your own: `ADMIN_PASSWORD=yourpass node server.js` (PowerShell: `$env:ADMIN_PASSWORD="yourpass"; node server.js`).
+The console prints the addresses and the **admin password** (generated on first run and saved in `data/admin-password.txt`). To set your own: `ADMIN_PASSWORD=yourpass node wifi-server.js` (PowerShell: `$env:ADMIN_PASSWORD="yourpass"; node wifi-server.js`).
 
 | Page | Who | What |
 |---|---|---|
@@ -20,7 +20,7 @@ The console prints the addresses and the **admin password** (generated on first 
 ## On the Wi-Fi (phones, TVs, other laptops)
 
 1. **One time only:** double-click `allow-wifi-phones.bat` and click **Yes**. It marks the Wi-Fi as Private and opens port 3000 to the local network only. Until this is done, Windows blocks phones.
-2. Double-click `start-server.bat` (or run `node server.js`) and keep that window open.
+2. Double-click `start-server.bat` (or run `node wifi-server.js`) and keep that window open.
 3. Phones on the same Wi-Fi open the `http://192.168.x.x:3000` address shown in the window, or in **Control Room → Join on Wi-Fi** (with Copy buttons).
 
 The board switches to a one-column layout on portrait phones automatically. Keep the laptop plugged in and stop it from sleeping during the event. The address can change if the router restarts, so check Join on Wi-Fi on the day.
@@ -45,7 +45,7 @@ The board switches to a one-column layout on portrait phones automatically. Keep
 
 ## Files
 
-- `server.js`: the whole backend (state, rules, auth, live push via Server-Sent Events). State is saved to `data/state.json` on every change, so a restart loses nothing.
+- `wifi-server.js`: the whole backend (state, rules, auth, live push via Server-Sent Events). State is saved to `data/state.json` on every change, so a restart loses nothing.
 - `public/js/board.js` + `public/css/board.css`: board renderer and animations (intro ported from `goat-fixtures-code/fixtures-scene.jsx`).
 - `private/`: admin UI, served only after login.
 - `public/ads/`: put your ad images/videos here (sorted by filename). Delete the two `sample-*.svg` files.

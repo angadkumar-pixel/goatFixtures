@@ -1,4 +1,4 @@
-// THE GOAT — laptop / venue Wi-Fi server. Zero dependencies: `node server.js`.
+// THE GOAT — laptop / venue Wi-Fi server. Zero dependencies: `node wifi-server.js`.
 // Same rules as the Vercel version (lib/core.js); here state lives in data/state.json and screens get instant pushes.
 // Public:  /  (home)   /fixtures  (live board)   /ads  (slideshow)      Admin:  /admin  (password)
 const http = require('http');

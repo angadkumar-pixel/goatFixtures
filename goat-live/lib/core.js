@@ -1,4 +1,4 @@
-// THE GOAT — match rules, shared by the laptop server (server.js) and the Vercel functions (api/*.js).
+// THE GOAT — match rules, shared by the laptop server (wifi-server.js) and the Vercel functions (api/*.js).
 // Everything works on a plain `state` object passed in; no I/O here.
 const crypto = require('crypto');
 

@@ -3,7 +3,10 @@
   "version": "1.0.0",
   "private": true,
   "description": "THE GOAT badminton tournament: live fixtures board, ads slideshow and admin control room",
-  "main": "server.js",
-  "scripts": { "start": "node server.js" },
-  "engines": { "node": ">=18" }
+  "scripts": {
+    "start": "node wifi-server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
 }
