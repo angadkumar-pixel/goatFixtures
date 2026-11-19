@@ -50,6 +50,13 @@ The board switches to a one-column layout on portrait phones automatically. Keep
 - `private/`: admin UI, served only after login.
 - `public/ads/`: put your ad images/videos here (sorted by filename). Delete the two `sample-*.svg` files.
 
-## Hosting online
+## Online on Vercel (+ Upstash Redis database)
 
-It runs anywhere that supports a long-running Node process (Render, Railway, Fly.io, a VPS). Netlify/Vercel static hosting won't work, because the live connection needs a persistent server. Set `ADMIN_PASSWORD` and `PORT` as environment variables. Use HTTPS in production so the login cookie is protected.
+Same rules as the laptop version (`lib/core.js`). Pages live on Vercel's network, the Control Room's changes are saved in Upstash Redis, and every screen picks up changes within about 1–2 seconds. Nothing sleeps, and there is nothing to keep awake.
+
+1. vercel.com → **Add New → Project** → import `goatFixtures` → **Root Directory: `goat-live`** → Deploy.
+2. Project → **Storage → Create / Connect → Upstash for Redis** (free) → connect to this project.
+3. Project → **Settings → Environment Variables** → add `ADMIN_PASSWORD` (a strong one).
+4. **Deployments → ⋯ → Redeploy** so the new settings are picked up.
+
+The online database starts empty. Add matches in `/admin`. To change the slideshow, add or remove files in `public/ads`, commit and push; Vercel rebuilds by itself. On match day, play the venue TV slideshow from the laptop (`start-slideshow.bat`) so the big video files don't use Vercel bandwidth all day.

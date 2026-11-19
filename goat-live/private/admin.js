@@ -21,6 +21,7 @@
       if (r.status === 401) { location.reload(); return null; }
       const j = await r.json().catch(() => ({}));
       if (!r.ok) { toast(j.error || 'Something went wrong', { error: true }); return null; }
+      if (j.state) GoatLive.push(j.state);
       return j;
     } catch { toast('Cannot reach the server', { error: true }); return null; }
   }
