@@ -291,7 +291,9 @@
   $('#addForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const f = e.target;
-    if (await act('add', { a: f.a.value, b: f.b.value })) { f.a.value = ''; f.b.value = ''; f.a.focus(); }
+    if (await act('add', { a: f.a.value, b: f.b.value, phoneA: f.phoneA.value, phoneB: f.phoneB.value })) {
+      f.a.value = ''; f.b.value = ''; f.phoneA.value = ''; f.phoneB.value = ''; f.a.focus();
+    }
   });
   $('#doneList').addEventListener('click', (e) => { const r = e.target.closest('[data-restore]'); if (r) act('restore', { id: r.dataset.restore }); });
 

@@ -68,6 +68,8 @@ input:focus, select:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rgb
 .empty { list-style: none; color: var(--mute); text-align: center; padding: 14px; border: 1px dashed var(--line2); border-radius: 10px; font-size: 13px; }
 
 .addrow { display: grid; grid-template-columns: 1fr 1fr auto; gap: 6px; margin-top: 8px; }
+.addrow input[name=phoneA] { grid-column: 1; } .addrow input[name=phoneB] { grid-column: 2; }
+.addrow input[type=tel] { font-size: 13px; padding: 7px 10px; }
 .done { margin-top: 12px; }
 .done summary { cursor: pointer; color: var(--mute); font: 700 14px 'Barlow Condensed', sans-serif; letter-spacing: 2px; text-transform: uppercase; }
 .done ol { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 4px; }
@@ -162,6 +164,7 @@ button.small { padding: 6px 10px; font-size: 13px; color: var(--mute); }
   .who i { font-size: 10px; margin: 0 2px; }
   .b { grid-column: 3; justify-self: start; font-size: 10px; padding: 1px 5px; border-radius: 4px; }
   .addrow { grid-template-columns: 1fr; }
+  .addrow input[name=phoneA], .addrow input[name=phoneB] { grid-column: auto; }
   .two { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) { .m.ending, .m.ready .b, .court.ending { animation: none; } }
