@@ -70,7 +70,7 @@ async function deliver(to, kind, p) {
   try {
     if (PROVIDER === 'gupshup-enterprise') {
       const body = new URLSearchParams({ send_to: to, msg_type: 'text', userid: env('GUPSHUP_USERID'), auth_scheme: 'plain', v: '1.1', format: 'json',
-        method: 'SendMessage', isHSM: 'true', isTemplate: 'true', whatsAppTemplateId: TPL[kind] });
+        method: 'SendMessage', isHSM: 'true', isTemplate: p.length ? 'false' : 'true', whatsAppTemplateId: TPL[kind] }); // Gupshup's sample: isTemplate=false when var1, var2… are sent
       p.forEach((v, i) => body.append('var' + (i + 1), v)); // {{1}}, {{2}}, {{3}} → var1, var2, var3
       const r = await fetch('https://mediaapi.smsgupshup.com/GatewayAPI/rest', { method: 'POST', signal: ctl.signal,
         headers: { Authorization: 'Bearer ' + env('GUPSHUP_TOKEN'), 'Content-Type': 'application/x-www-form-urlencoded' }, body });
