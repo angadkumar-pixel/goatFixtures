@@ -111,7 +111,7 @@ function lanAddresses() {
     .map((n) => ({ ip: n.address, iface: name })))
     .sort((a, b) => (/wi-?fi|wlan/i.test(b.iface) ? 1 : 0) - (/wi-?fi|wlan/i.test(a.iface) ? 1 : 0));
 }
-const PAGES = { '/': 'index.html', '/fixtures': 'fixtures.html', '/ads': 'ads.html' };
+const PAGES = { '/': 'index.html', '/fixtures': 'fixtures.html', '/ads': 'ads.html', '/tv': 'tv.html' };
 
 http.createServer(async (req, res) => {
   const p = decodeURIComponent(new URL(req.url, 'http://x').pathname);

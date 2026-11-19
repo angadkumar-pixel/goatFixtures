@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TV check · THE GOAT</title>
+<script src="/js/lite.js"></script>
+<style>
+  body { margin: 0; padding: 40px; background: #0d1433; color: #eef1ff; font: 24px/1.5 system-ui, sans-serif; }
+  h1 { margin: 0 0 20px; color: #fcc500; }
+  table { border-collapse: collapse; width: 100%; max-width: 1400px; }
+  td { padding: 10px 14px; border-bottom: 1px solid #2a3366; vertical-align: top; word-break: break-all; }
+  td:first-child { color: #8f99c7; width: 260px; word-break: normal; }
+  .btns { margin-top: 28px; }
+  a { display: inline-block; margin: 0 16px 16px 0; padding: 18px 28px; border-radius: 12px; background: #fcc500; color: #060b26; font-weight: 700; text-decoration: none; }
+  a.alt { background: #22305f; color: #fff; }
+  a:focus, a:hover { outline: 4px solid #fff; }
+</style>
+</head>
+<body>
+<h1>TV check</h1>
+<table id="t"></table>
+<div class="btns">
+  <a href="/tv?lite=1">Use TV mode on this screen</a>
+  <a class="alt" href="/tv?lite=0">Use full mode on this screen</a>
+  <a class="alt" href="/fixtures">Open live board</a>
+  <a class="alt" href="/">Home</a>
+</div>
+<script>
+  var rows = [
+    ['Mode on this screen', window.GOAT_LITE ? 'TV / lite' : 'Full'],
+    ['Remembered setting', window.GOAT_LITE_LOCKED ? 'yes' : 'no (automatic)'],
+    ['Screen (CSS pixels)', innerWidth + ' × ' + innerHeight],
+    ['Pixel density', String(window.devicePixelRatio || 1) + '  → draws ' + Math.round(innerWidth * (devicePixelRatio || 1)) + ' × ' + Math.round(innerHeight * (devicePixelRatio || 1))],
+    ['Processor cores', String(navigator.hardwareConcurrency || '?')],
+    ['Memory (GB)', String(navigator.deviceMemory || '?')],
+    ['Browser', navigator.userAgent],
+    ['Frame rate', 'measuring…']
+  ];
+  function draw() { document.getElementById('t').innerHTML = rows.map(function (r) { return '<tr><td>' + r[0] + '</td><td>' + r[1] + '</td></tr>'; }).join(''); }
+  draw();
+  var n = 0, t0 = 0;
+  requestAnimationFrame(function f(t) { if (!t0) t0 = t; n++; if (t - t0 < 2000) return requestAnimationFrame(f); rows[7][1] = Math.round(n / ((t - t0) / 1000)) + ' frames per second'; draw(); });
+</script>
+</body>
+</html>

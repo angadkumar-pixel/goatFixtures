@@ -147,7 +147,9 @@ body.idle { cursor: none; }
 .hud kbd { font: inherit; opacity: 0.6; margin-left: 4px; }
 
 /* lite mode (smart TVs, slow devices): same look and the same camera zoom, minus the expensive extras */
-html.lite .panel-glow { display: none; }
+html.lite .panel-glow, html.lite .stripes { display: none; }
+html.lite .panel { box-shadow: none; }
+html.lite .bg-light { background: #e9eeff; }
 html.lite .heading, html.lite .chrome, html.lite .clock, html.lite .chip, html.lite .sweep, html.lite .trace, html.lite .bg-dark, html.lite .blink { will-change: auto; }
 html.lite .row.live .plate::before, html.lite .row.live .vs::after, html.lite .status .dot::after, html.lite .chip .dot::after, html.lite .row.called .chip::after { animation: none; }
 html.lite .vs, html.lite .clock, html.lite .big { text-shadow: none; }

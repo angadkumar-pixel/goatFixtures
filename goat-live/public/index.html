@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<script src="/js/lite.js"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>THE GOAT Badminton Tournament</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -73,7 +74,13 @@
     .mini li { font-size: 18px; grid-template-columns: 64px minmax(0, 1fr); }
     .mini li span:last-child { white-space: normal; overflow: visible; line-height: 1.15; }
   }
-  /* smart TVs / slow devices: no decorative motion, no heavy shadows */
+  /* smart TVs / slow devices: cheap to paint — solid colours, no texture overlay, no shadows, no motion */
+  html.lite body { background: #022dc6; }
+  html.lite body::before { display: none; }
+  html.lite .card { background: #0a1550; border-color: rgba(255,255,255,0.18); isolation: auto; }
+  html.lite .card:hover, html.lite .card:focus { border-color: #fcc500; }
+  html.lite .ads::after { background: rgba(6,11,38,0.8); }
+  html.lite .mini li { background: #060b26; }
   html.lite .play::after, html.lite .tag.live::before { animation: none; }
   html.lite .card, html.lite .card:hover { box-shadow: none; transform: none; transition: border-color 0.2s; }
   html.lite .ads .bg, html.lite .ads:hover .bg { transform: none; transition: none; }
@@ -113,8 +120,6 @@
 <script src="/js/live.js"></script>
 <script>
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  if (/SmartTV|SMART-TV|Tizen|Web0S|WebOS|NetCast|BRAVIA|HbbTV|AFT[A-Z]|CrKey|GoogleTV|Android ?TV|VIDAA|Hisense|PhilipsTV|Roku|TV/i.test(navigator.userAgent) || /[?&]lite=1/.test(location.search))
-    document.documentElement.classList.add('lite');
   let lastHtml = '';
   GoatLive.connect((s) => {
     document.getElementById('title').textContent = s.title;

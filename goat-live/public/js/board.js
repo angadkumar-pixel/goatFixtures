@@ -18,7 +18,7 @@
   // Force with ?lite=1, turn off with ?lite=0. Also switches on by itself if the screen cannot keep up.
   const QS = new URLSearchParams(location.search);
   const TV_UA = /SmartTV|SMART-TV|Tizen|Web0S|WebOS|NetCast|BRAVIA|HbbTV|AFT[A-Z]|CrKey|GoogleTV|Android ?TV|VIDAA|Hisense|PhilipsTV|Roku|\bTV\b/i.test(navigator.userAgent);
-  let LITE = QS.has('lite') ? QS.get('lite') !== '0' : TV_UA || (navigator.deviceMemory && navigator.deviceMemory <= 1);
+  let LITE = window.GOAT_LITE !== undefined ? !!window.GOAT_LITE : TV_UA; // decided by /js/lite.js (?lite=1 on a TV remembers it)
   document.documentElement.classList.toggle('lite', !!LITE);
   const setLite = (on) => { LITE = !!on; document.documentElement.classList.toggle('lite', LITE); if (L) { L.dive = LITE ? Math.min(L.dive, 1.6) : L.dive; L.focus = LITE ? Math.min(L.focus, 1.4) : L.focus; } };
   // wait for an animation to end (works on older browsers without Animation.finished)
@@ -476,7 +476,8 @@
   applyLayout();
   bgDark.style.opacity = 1;
   const fontsOrTimeout = Promise.race([document.fonts ? document.fonts.ready : sleep(0), sleep(1200)]);
-  if (!QS.has('lite') && !LITE) { // auto-detect a struggling screen (e.g. a smart TV that does not say so)
+  window.onGoatLite = () => setLite(true);
+  if (!window.GOAT_LITE_LOCKED && !LITE) { // auto-detect a struggling screen (e.g. a smart TV that does not say so)
     const gaps = []; let last = 0;
     const probe = (t) => { if (last) gaps.push(t - last); last = t; if (gaps.length < 40) requestAnimationFrame(probe); else { gaps.sort((a, b) => a - b); if (gaps[20] > 34) setLite(true); } };
     requestAnimationFrame(probe);
