@@ -1,3 +1,4 @@
 data/
 public/ads-list.json
 .vercel
+public/config.js

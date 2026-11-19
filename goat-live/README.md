@@ -50,13 +50,21 @@ The board switches to a one-column layout on portrait phones automatically. Keep
 - `private/`: admin UI, served only after login.
 - `public/ads/`: put your ad images/videos here (sorted by filename). Delete the two `sample-*.svg` files.
 
-## Online on Vercel (+ Upstash Redis database)
+## Online: Vercel + Firebase Realtime Database
 
-Same rules as the laptop version (`lib/core.js`). Pages live on Vercel's network, the Control Room's changes are saved in Upstash Redis, and every screen picks up changes within about 1–2 seconds. Nothing sleeps, and there is nothing to keep awake.
+Same rules as the laptop version (`lib/core.js`). Vercel serves the pages and runs the admin actions (`api/`, region Singapore).
+Firebase Realtime Database stores the fixtures and **pushes every change to all screens instantly**. Each change
+sends only the matches that changed (usually under 1 KB). Phones work out the tentative times themselves.
 
-1. vercel.com → **Add New → Project** → import `goatFixtures` → **Root Directory: `goat-live`** → Deploy.
-2. Project → **Storage → Create / Connect → Upstash for Redis** (free) → connect to this project.
-3. Project → **Settings → Environment Variables** → add `ADMIN_PASSWORD` (a strong one).
-4. **Deployments → ⋯ → Redeploy** so the new settings are picked up.
+Vercel → Settings → Environment Variables:
+- `ADMIN_PASSWORD`: the Control Room password
+- `FIREBASE_DB_URL`: e.g. `https://goat-fixtures-default-rtdb.asia-southeast1.firebasedatabase.app`
+- `FIREBASE_SERVICE_ACCOUNT`: the whole service-account JSON file (Firebase → Project settings → Service accounts → Generate new private key)
 
-The online database starts empty. Add matches in `/admin`. To change the slideshow, add or remove files in `public/ads`, commit and push; Vercel rebuilds by itself. On match day, play the venue TV slideshow from the laptop (`start-slideshow.bat`) so the big video files don't use Vercel bandwidth all day.
+Firebase Realtime Database → Rules:
+```json
+{ "rules": { ".read": false, ".write": false, "goat": { ".read": true } } }
+```
+Screens can read the fixtures; only the server (service account) can write, and undo history / login data stay private.
+
+To change the slideshow, add or remove files in `public/ads`, commit and push; Vercel rebuilds by itself. On match day, play the venue TV slideshow from the laptop (`start-slideshow.bat`) so the big video files don't use Vercel bandwidth all day.

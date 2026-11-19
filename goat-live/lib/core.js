@@ -32,30 +32,9 @@ function migrate(st) {
 
 const isActive = (m) => m.status === 'live' || m.status === 'called';
 
-// Tentative schedule. Each court is busy for matchMinutes (15) from when its match started (or is called to start).
-// Waiting matches, in order, take whichever court frees up first, plus any delay the admin added.
-function normalize(st, now = Date.now()) {
-  const D = (Number(st.settings.matchMinutes) || 15) * 60000, n = st.settings.courts || 4;
-  const free = Array.from({ length: n }, () => now);
-  const earliest = () => free.indexOf(Math.min(...free));
-  st.matches.forEach((m) => {
-    if (!isActive(m)) return;
-    const end = m.status === 'live' ? Math.max(now, (m.startedAt || now) + D) : Math.max(now, m.callAt) + D;
-    const k = +m.court >= 1 && +m.court <= n ? +m.court - 1 : earliest();
-    free[k] = Math.max(free[k], end);
-    m.time = m.status === 'live' ? m.startedAt : m.callAt;
-  });
-  st.matches.forEach((m) => {
-    if (m.status !== 'queued') return;
-    const k = earliest();
-    const t = Math.max(now, free[k]) + (Number(m.delay) || 0) * 60000;
-    m.time = Math.ceil(t / 60000) * 60000;
-    m.timeLocked = false;
-    free[k] = t + D;
-  });
-  if (st.done.length > 300) st.done.length = 300;
-  return st;
-}
+// Tentative schedule — one implementation shared with the browser (public/js/goat-shared.js).
+const shared = require('../public/js/goat-shared');
+function normalize(st, now = Date.now()) { return shared.normalize(st, now); }
 
 // Countdown finished → the called match goes live by itself. Returns true if anything changed.
 function autoStart(st, now = Date.now()) {

@@ -124,6 +124,7 @@ http.createServer(async (req, res) => {
       req.on('close', () => clients.delete(res));
       return;
     }
+    if (p === '/config.js') return send(res, 200, 'window.GOAT_CONFIG = {};', 'text/javascript; charset=utf-8');
     if (p === '/api/state') return send(res, 200, payload());
     if (p === '/api/rev') return send(res, 200, { rev: state.rev, now: Date.now() });
     if (p === '/api/ads') {
