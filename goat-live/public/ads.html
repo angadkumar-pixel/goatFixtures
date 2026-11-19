@@ -26,6 +26,9 @@
     background: linear-gradient(160deg, #1550ff 0%, #022dc6 45%, #011a86 100%); }
   .empty h1 { font-family: 'Anton', sans-serif; font-weight: 400; font-size: clamp(40px, 8vw, 110px); margin: 0; letter-spacing: 0.06em; }
   .empty p { font-size: 22px; letter-spacing: 0.1em; color: #fcc500; text-transform: uppercase; }
+  html.lite .slide { transition: none; }
+  html.lite .slide.on img { animation: none; }
+  html.lite .slide .blur { filter: brightness(0.45); }
   @media (prefers-reduced-motion: reduce) { .slide.on img { animation: none; } }
 </style>
 </head>
@@ -40,6 +43,11 @@
 (() => {
   const show = document.getElementById('show'), bar = document.getElementById('bar');
   let ads = [], i = -1, secs = 8, timer, current = null, soundOn = true;
+  // Smart TVs / slow devices: straight cuts, no slow zoom on images. ?lite=1 forces it, ?lite=0 turns it off.
+  const QS = new URLSearchParams(location.search);
+  const LITE = QS.has('lite') ? QS.get('lite') !== '0'
+    : /SmartTV|SMART-TV|Tizen|Web0S|WebOS|NetCast|BRAVIA|HbbTV|AFT[A-Z]|CrKey|GoogleTV|Android ?TV|VIDAA|Hisense|PhilipsTV|Roku|\bTV\b/i.test(navigator.userAgent);
+  if (LITE) document.documentElement.classList.add('lite');
   // Sound is always on. Browsers only refuse it when nobody has clicked yet (page opened by typing the URL);
   // then the video starts muted and the very first click or key press anywhere brings the sound in. No button.
   function enableSound() {
@@ -62,14 +70,18 @@
     el.style.setProperty('--dur', secs + 2 + 's');
     if (ad.video) {
       el.classList.add('is-video'); // empty sides get a calm brand backdrop (see .is-video)
-      el.innerHTML = '<video playsinline></video>';
-      const v = el.querySelector('video');
-      v.src = ad.src;
+      // use the copy that was already buffering in the background, if it's this video
+      const v = pre && pre.dataset.src === ad.src ? pre : document.createElement('video');
+      pre = null;
+      v.setAttribute('playsinline', ''); v.preload = 'auto';
+      if (!v.dataset.src) { v.src = ad.src; v.dataset.src = ad.src; }
+      el.append(v);
       v.muted = !soundOn;
       v.onended = next; v.onerror = next;
       current = v;
       v.play().catch(() => { soundOn = false; v.muted = true; v.play().catch(next); });
       bar.style.transition = 'none'; bar.style.width = '0';
+      preloadNext();
     } else {
       el.innerHTML = `<div class="blur" style="background-image:url('${ad.src}')"></div><img alt="" src="${ad.src}">`;
       bar.style.transition = 'none'; bar.style.width = '0'; void bar.offsetWidth;
@@ -77,9 +89,20 @@
       timer = setTimeout(next, secs * 1000);
     }
     show.append(el);
-    requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('on')));
     const old = [...show.children].slice(0, -1);
+    if (LITE) { el.classList.add('on'); old.forEach((o) => o.remove()); return; } // TVs: straight cut, nothing overlapping
+    requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('on')));
     setTimeout(() => old.forEach((o) => o.remove()), 1300);
+  }
+  // Start buffering the next video while this one plays, so it starts instantly.
+  let pre = null;
+  function preloadNext() {
+    const nx = ads[(i + 1) % ads.length];
+    if (!nx || !nx.video || (pre && pre.dataset.src === nx.src)) return;
+    pre = document.createElement('video');
+    pre.preload = 'auto'; pre.muted = true; pre.setAttribute('playsinline', '');
+    pre.src = nx.src; pre.dataset.src = nx.src;
+    pre.load();
   }
 
   async function load() {

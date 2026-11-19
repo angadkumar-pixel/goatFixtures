@@ -14,6 +14,15 @@
   const PREVIEW = new URLSearchParams(location.search).has('preview');
   const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const skipMotion = () => document.hidden || REDUCED;
+  // Lite mode for smart TVs and slow devices: keeps the camera zoom and slam, drops beams/glows/spotlight.
+  // Force with ?lite=1, turn off with ?lite=0. Also switches on by itself if the screen cannot keep up.
+  const QS = new URLSearchParams(location.search);
+  const TV_UA = /SmartTV|SMART-TV|Tizen|Web0S|WebOS|NetCast|BRAVIA|HbbTV|AFT[A-Z]|CrKey|GoogleTV|Android ?TV|VIDAA|Hisense|PhilipsTV|Roku|\bTV\b/i.test(navigator.userAgent);
+  let LITE = QS.has('lite') ? QS.get('lite') !== '0' : TV_UA || (navigator.deviceMemory && navigator.deviceMemory <= 1);
+  document.documentElement.classList.toggle('lite', !!LITE);
+  const setLite = (on) => { LITE = !!on; document.documentElement.classList.toggle('lite', LITE); if (L) { L.dive = LITE ? Math.min(L.dive, 1.6) : L.dive; L.focus = LITE ? Math.min(L.focus, 1.4) : L.focus; } };
+  // wait for an animation to end (works on older browsers without Animation.finished)
+  const fin = (a) => (a.finished ? a.finished.catch(() => {}) : new Promise((res) => { a.onfinish = res; a.oncancel = res; }));
 
   const vp = $('viewport'), stage = $('stage'), camEl = $('cam'), rowsEl = $('rows'), bgDark = $('bgDark'), beamsEl = $('beams'),
     panel = $('panel'), glow = $('panelGlow'), traceSvg = $('traceSvg'), trace = $('trace'), traceGlow = $('traceGlow'),
@@ -41,13 +50,14 @@
       slot: (i) => ({ x: ox + (i < 5 ? 170 : 990), y: oy + 372 + (i % 5) * 128 }) };
   }
   let L = null, PERIM = 0, FULL = { cx: 960, cy: 540, z: 1 };
-  const px = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, v + 'px']));
+  const px = (o) => Object.keys(o).reduce((r, k) => { r[k] = o[k] + 'px'; return r; }, {});
   function slotBox(i) {
     const { x, y } = L.slot(i);
     return { x, y, cx: x + (RW * L.scale) / 2, cy: y + (RH * L.scale) / 2 };
   }
   function applyLayout() {
     L = makeLayout();
+    if (LITE) { L.dive = Math.min(L.dive, 1.6); L.focus = Math.min(L.focus, 1.4); } // lighter zoom on TVs
     stage.classList.toggle('portrait', L.name === 'port');
     for (const el of [stage, camEl]) { el.style.width = L.W + 'px'; el.style.height = L.H + 'px'; }
     stage.style.transform = `scale(${L.s})`;
@@ -67,7 +77,7 @@
     Object.assign(moreEl.style, px(L.more));
     FULL = { cx: L.W / 2, cy: L.H / 2, z: 1 };
     BEAMS.forEach((b) => { const x = (b.x * L.W) / 1920; b.d.style.left = x - 260 + 'px'; b.h.style.left = x - 26 + 'px'; });
-    rows.forEach((r) => { r.el.style.scale = L.scale; if (r.slot >= 0) place(r, r.slot, false); });
+    rows.forEach((r) => { if (r.slot >= 0) place(r, r.slot, false); });
     Object.assign(cam, FULL); applyCam();
   }
   let lastW = 0, lastH = 0, resizeT;
@@ -118,7 +128,7 @@
     const s = { ...cam }, A = [];
     track(A, camEl, 0, ms / 1000, (T) => { const e = eIO(T / (ms / 1000)); return { transform: camTransform({ cx: fl(s.cx, t.cx, e), cy: fl(s.cy, t.cy, e), z: fl(s.z, t.z, e) }) }; });
     startTogether(A);
-    await A[0].finished.catch(() => {});
+    await fin(A[0]);
     Object.assign(cam, t); applyCam(); endAll(A);
   }
 
@@ -133,7 +143,6 @@
     const q = (s) => el.querySelector(s);
     const r = { el, m: null, slot: -1, chipKey: '', seenReady: 0, card: q('.card'), pa: q('.plate.a'), pb: q('.plate.b'), na: q('.a .name'), nb: q('.b .name'),
       vs: q('.vs'), chip: q('.chip'), bar: q('.cdbar i'), flash: q('.flash'), ring: q('.ring') };
-    el.style.scale = L.scale;
     rowsEl.append(el);
     rows.set(m.id, r);
     paintRow(r, m, false);
@@ -208,7 +217,7 @@
     const b = slotBox(slot);
     if (!animate) r.el.style.transition = 'none';
     r.el.style.transitionDelay = animate ? delay + 'ms' : '0ms';
-    r.el.style.translate = `${b.x}px ${b.y}px`;
+    r.el.style.transform = `translate(${b.x}px, ${b.y}px) scale(${L.scale})`;
     if (!animate) { void r.el.offsetWidth; r.el.style.transition = ''; }
     r.slot = slot;
   }
@@ -217,7 +226,8 @@
   function bakeSlam(A, r, te) {
     const D = 0.95, P = (dt) => fr(dt, 0, 0.6), slide = (dt) => 1 - eOut(fr(dt, 0, 0.35)), vP = (dt) => fr(dt, 0.12, 0.42);
     const sc = (p) => (p < 0.5 ? fl(1.6, 0.96, eOut(p / 0.5)) : p < 0.75 ? fl(0.96, 1.08, eOut((p - 0.5) / 0.25)) : fl(1.08, 1, eOut((p - 0.75) / 0.25)));
-    track(A, r.card, te, te + D, (T) => { const dt = T - te; return { transform: `scale(${sc(P(dt))})`, opacity: fr(dt, 0, 0.12) }; });
+    track(A, r.card, te, te + D, (T) => { const dt = T - te; return { transform: `scale(${sc(P(dt))})`, opacity: fr(dt, 0, 0.12) }; }, LITE ? 30 : 60);
+    if (LITE) return; // TV: the card itself slams in; skip the extra plate/ring/flash layers
     track(A, r.pa, te, te + D, (T) => ({ transform: `translateX(${-160 * slide(T - te)}px)` }));
     track(A, r.pb, te, te + D, (T) => ({ transform: `translateX(${160 * slide(T - te)}px)` }));
     track(A, r.vs, te, te + D, (T) => { const v = vP(T - te); return { transform: `scale(${fl(3, 1, eOut(v))})`, opacity: fc(v * 3) }; });
@@ -231,7 +241,7 @@
     const A = [];
     bakeSlam(A, r, 0);
     startTogether(A);
-    await A[0].finished.catch(() => {});
+    await fin(A[0]);
     endAll(A);
   }
 
@@ -246,18 +256,18 @@
       await sleep(650);
       r.flash.animate([{ opacity: 0 }, { opacity: 0.9 }, { opacity: 0 }], { duration: 520 });
       r.ring.animate([{ opacity: 1, transform: 'scale(.3)' }, { opacity: 0, transform: 'scale(3.2)' }], { duration: 700, easing: 'cubic-bezier(.22,1,.36,1)' });
-      await r.card.animate([{ transform: 'scale(1)', opacity: 1 }, { transform: 'scale(1.05)', opacity: 1, offset: 0.3 }, { transform: 'scale(0.6)', opacity: 0 }],
-        { duration: 800, delay: 120, easing: 'cubic-bezier(.55,0,.75,.2)', fill: 'forwards' }).finished;
+      await fin(r.card.animate([{ transform: 'scale(1)', opacity: 1 }, { transform: 'scale(1.05)', opacity: 1, offset: 0.3 }, { transform: 'scale(0.6)', opacity: 0 }],
+        { duration: 800, delay: 120, easing: 'cubic-bezier(.55,0,.75,.2)', fill: 'forwards' }));
     } else {
-      await r.card.animate([{ opacity: 1, transform: 'translateY(0)' }, { opacity: 0, transform: 'translateY(30px)' }],
-        { duration: 420, easing: 'ease-in', fill: 'forwards' }).finished;
+      await fin(r.card.animate([{ opacity: 1, transform: 'translateY(0)' }, { opacity: 0, transform: 'translateY(30px)' }],
+        { duration: 420, easing: 'ease-in', fill: 'forwards' }));
     }
     r.el.remove();
   }
 
   function spotlight(b) {
-    if (skipMotion()) return;
-    spot.style.translate = `${b.cx}px ${b.cy}px`;
+    if (skipMotion() || LITE) return;
+    spot.style.left = b.cx + 'px'; spot.style.top = b.cy + 'px';
     spot.animate([{ opacity: 0, transform: 'scale(.5)' }, { opacity: 1, transform: 'scale(1)', offset: 0.35 }, { opacity: 0, transform: 'scale(1.3)' }],
       { duration: 1700, easing: 'ease-out' });
     sweepEl.animate([{ transform: 'translateX(0) rotate(18deg)' }, { transform: `translateX(${L.panel.w + 700}px) rotate(18deg)` }], { duration: 1100, easing: 'cubic-bezier(.4,0,.2,1)' });
@@ -339,8 +349,8 @@
     track(A, camEl, 0, total, (T) => { const c = camAt(T); return { transform: camTransform(c, Math.sin(T * 90) * 9 * c.shake, Math.cos(T * 77) * 6 * c.shake) }; });
     const dark = (T) => 1 - eIO(fr(T, C.Reveal + 0.2, C.Reveal + 1.6));
     track(A, bgDark, 0, C.Reveal + 1.6, (T) => ({ opacity: dark(T) }), 30);
-    track(A, beamsEl, 0, C.Reveal + 1.6, (T) => ({ opacity: dark(T) }), 30);
-    BEAMS.forEach((b, i) => {
+    if (!LITE) track(A, beamsEl, 0, C.Reveal + 1.6, (T) => ({ opacity: dark(T) }), 30);
+    if (!LITE) BEAMS.forEach((b, i) => {
       const on = (T) => fr(T, C.Lights + i * 0.18, C.Lights + i * 0.18 + 0.12);
       track(A, b.d, 0, C.Reveal + 1.6, (T) => ({
         transform: `rotate(${fl(b.a0, b.a1, eIO(fr(T, C.Lights, C.Matches))) + Math.sin(T * 1.6 + b.ph) * 6}deg)`,
@@ -348,7 +358,7 @@
       track(A, b.h, 0, C.Lights + 1, (T) => ({ opacity: on(T) }), 30);
     });
     track(A, panel, C.Lights + 0.9, C.Lights + 1.6, (T) => ({ opacity: eOut(fr(T, C.Lights + 0.9, C.Lights + 1.6)) }), 30);
-    track(A, glow, C.Lights + 0.9, C.Reveal + 1.6, (T) => ({ opacity: eOut(fr(T, C.Lights + 0.9, C.Lights + 1.6)) * dark(T) }), 30);
+    if (!LITE) track(A, glow, C.Lights + 0.9, C.Reveal + 1.6, (T) => ({ opacity: eOut(fr(T, C.Lights + 0.9, C.Lights + 1.6)) * dark(T) }), 30);
     for (const r of [trace, traceGlow]) {
       A.push(r.animate([{ strokeDashoffset: PERIM }, { strokeDashoffset: 0 }], { duration: 1000, delay: (C.Lights + 0.5) * 1000, fill: 'both' }));
     }
@@ -402,7 +412,12 @@
   lastW = innerWidth; lastH = innerHeight;
   applyLayout();
   bgDark.style.opacity = 1;
-  const fontsOrTimeout = Promise.race([document.fonts.ready, sleep(1200)]); // never let slow font downloads delay the show
+  const fontsOrTimeout = Promise.race([document.fonts ? document.fonts.ready : sleep(0), sleep(1200)]);
+  if (!QS.has('lite') && !LITE) { // auto-detect a struggling screen (e.g. a smart TV that does not say so)
+    const gaps = []; let last = 0;
+    const probe = (t) => { if (last) gaps.push(t - last); last = t; if (gaps.length < 40) requestAnimationFrame(probe); else { gaps.sort((a, b) => a - b); if (gaps[20] > 34) setLite(true); } };
+    requestAnimationFrame(probe);
+  } // never let slow font downloads delay the show
 
   GoatLive.connect((s) => {
     latest = s;
@@ -420,7 +435,7 @@
     maybeReplay();
   }, (ok) => $('conn').classList.toggle('show', !ok));
 
-  document.fonts.ready.then(() => rows.forEach((r) => { fitName(r.na); fitName(r.nb); }));
+  if (document.fonts) document.fonts.ready.then(() => rows.forEach((r) => { fitName(r.na); fitName(r.nb); }));
 
   // ── clock ──
   let lastClock = '';
