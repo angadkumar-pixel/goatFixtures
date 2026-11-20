@@ -239,13 +239,13 @@ function parseReports(body) {
 }
 const RANK = { sent: 1, delivered: 2, read: 3 };
 // Apply reports to recent deliveries. Returns the deliveries that changed.
-function applyReports(reports, recent, now = Date.now()) {
+function applyReports(reports, recent, now = Date.now(), { idOnly = false } = {}) {
   const changed = new Map();
   for (const r of reports) {
     const phone = normPhone(r.phone);
     // 1) exact message id  2) otherwise the latest message to that number in the last 6 hours
     let d = recent.find((x) => x.providerId && r.ids.includes(String(x.providerId)));
-    if (!d && phone) d = recent.filter((x) => x.to === '+' + phone && (x.sentAt || 0) > now - 6 * 3600e3 && (x.sentAt || 0) <= (r.at || now) + 120e3)
+    if (!d && phone && !idOnly) d = recent.filter((x) => x.to === '+' + phone && (x.sentAt || 0) > now - 6 * 3600e3 && (x.sentAt || 0) <= (r.at || now) + 120e3)
       .sort((a, b) => (b.sentAt || 0) - (a.sentAt || 0))[0];
     if (!d || d.status !== 'sent') continue;
     if (r.status === 'failed') {

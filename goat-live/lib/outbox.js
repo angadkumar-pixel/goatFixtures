@@ -90,13 +90,13 @@ async function failedAction(id, action) {
 
 // Delivery reports from Gupshup (every report is processed): mark delivered / read, resend failures automatically,
 // and only when it still can't get through put the player on the call list.
-async function handleReports(payload, method = 'POST') {
+async function handleReports(payload, method = 'POST', { trusted = true } = {}) {
   const reports = notify.parseReports(payload);
   const hook = { at: Date.now(), reports: reports.length, matched: 0, sample: JSON.stringify(payload || {}).slice(0, 1500), method };
   if (!reports.length) { await fire.patch('goat_private', { hook_last: hook }); return { matched: 0 }; }
   const watch = (await fire.get('goat_private/watch')) || {};
   const was = {}; Object.values(watch).forEach((w) => { if (w && w.id) was[w.id] = w.delivery || ''; });
-  const changed = notify.applyReports(reports, Object.values(watch));
+  const changed = notify.applyReports(reports, Object.values(watch), Date.now(), { idOnly: !trusted }); // no key → only exact message ids
   const writes = { hook_last: Object.assign(hook, { matched: changed.length }) };
   if (changed.length) writes.hook_ok = hook.at;                       // reports are working → the watchdog may act
   for (const d of changed) {

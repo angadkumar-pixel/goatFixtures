@@ -19,6 +19,10 @@
     {
       "source": "/api/ads",
       "destination": "/ads-list.json"
+    },
+    {
+      "source": "/api/wa-status/:key",
+      "destination": "/api/wa-status?key=:key"
     }
   ],
   "functions": {

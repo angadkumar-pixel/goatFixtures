@@ -2,7 +2,6 @@
 // Gupshup calls this when a WhatsApp message is sent / delivered / read / failed. The address (with its key) is shown
 // in the Control Room → WhatsApp panel; paste it into Gupshup → WhatsApp → Webhooks → Add Webhook.
 const outbox = require('../lib/outbox');
-const fire = require('../lib/fire');
 const { HOOK_KEY, json } = require('../lib/http');
 
 // Read the body whatever its type: JSON, form-urlencoded or plain text.
@@ -29,17 +28,9 @@ const unwrap = (o) => {
 
 module.exports = async (req, res) => {
   const q = Object.assign({}, req.query || {});
-  if (q.key !== HOOK_KEY) {
-    // remember (at most once a minute) that something called without the right key — e.g. a provider that drops ?key=
-    try {
-      const last = await fire.get('goat_private/hook_rejected/at');
-      if (!last || Date.now() - last > 60000) {
-        let b = ''; try { b = JSON.stringify(await rawBody(req)).slice(0, 600); } catch {}
-        await fire.patch('goat_private', { hook_rejected: { at: Date.now(), method: req.method, hadKey: 'key' in q, sample: b } });
-      }
-    } catch {}
-    return json(res, 401, { error: 'Bad key' });
-  }
+  // Gupshup Enterprise drops "?key=…" from the address, so the key may also come in the path (/api/wa-status/<key>) or not at all.
+  // Without the right key a report is still used, but only when its message id is exactly one we sent (long random ids).
+  const trusted = q.key === HOOK_KEY;
   delete q.key;
   if (q['hub.challenge']) { res.statusCode = 200; res.setHeader('Content-Type', 'text/plain'); return res.end(String(q['hub.challenge'])); }
   try {
@@ -47,7 +38,7 @@ module.exports = async (req, res) => {
     if (req.method === 'GET' && !Object.keys(extra).length) return json(res, 200, { ok: true }); // just checking the address
     let payload = Array.isArray(b) ? b : Object.assign({}, extra, b);
     if (!Array.isArray(payload) && Object.keys(payload).length === 1 && payload.response) payload = payload.response; // response=[...]
-    const r = await outbox.handleReports(payload, req.method);
+    const r = await outbox.handleReports(payload, req.method, { trusted });
     json(res, 200, Object.assign({ ok: true }, r));
   } catch (e) {
     console.error('wa-status', e);
