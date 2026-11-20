@@ -301,7 +301,7 @@
   $('#logoutBtn').onclick = async () => { await fetch('/api/logout', { method: 'POST' }); location.href = '/admin'; };
 
   // ── WhatsApp: phone numbers + message log (admin only) ──
-  let contacts = {}, wa = { provider: 'none', ready: false }, waLog = [], waFailed = [], waPending = 0, adminT = null;
+  let contacts = {}, wa = { provider: 'none', ready: false }, waLog = [], waFailed = [], waPending = 0, waHook = { url: '', last: null }, adminT = null;
   function refreshAdminData(delay = 0) {
     clearTimeout(adminT);
     adminT = setTimeout(async () => {
@@ -309,7 +309,7 @@
         const r = await fetch('/api/admin-data', { cache: 'no-store' });
         if (!r.ok) return;
         const j = await r.json();
-        contacts = j.contacts || {}; wa = j.whatsapp || wa; waLog = j.log || []; waFailed = j.failed || []; waPending = j.pending || 0;
+        contacts = j.contacts || {}; wa = j.whatsapp || wa; waLog = j.log || []; waFailed = j.failed || []; waPending = j.pending || 0; waHook = { url: j.webhookUrl || '', last: j.lastReport || null };
         renderWA();
       } catch {}
     }, delay);
@@ -318,6 +318,13 @@
     if (!S) return;
     const on = !!(S.settings && S.settings.notify);
     $('#waBadge').textContent = (on ? (wa.ready ? 'ON' : 'ON · test mode') : 'OFF') + (waPending ? ` · ${waPending} sending/retrying` : '');
+    // delivery-report address for Gupshup (online only)
+    $('#waHook').hidden = !waHook.url;
+    if (waHook.url) {
+      $('#waHookUrl').textContent = waHook.url;
+      const mins = waHook.last ? Math.round((Date.now() - waHook.last) / 60000) : null;
+      $('#waHookState').innerHTML = waHook.last ? `<span class="on">connected · last report ${mins < 1 ? 'just now' : mins + ' min ago'}</span>` : '<span class="off">not connected yet</span>';
+    }
     // players we couldn't reach after 10 tries → call them
     const kindName = { soon: 'Coming up', next: "You're next", later: 'Moved later' };
     $('#failBox').hidden = !waFailed.length;
@@ -330,7 +337,8 @@
     const t = $('#waToggle'); t.textContent = on ? 'Messages ON' : 'Messages OFF'; t.className = on ? 'on' : '';
     const kind = { soon: 'Coming up', next: "You're next", later: 'Moved later' };
     $('#waLog').innerHTML = waLog.length ? waLog.map((e) => {
-      const label = e.status === 'pending' ? `retrying (${e.attempts || 0}/10)${e.lastError ? ' — ' + e.lastError : ''}` : e.status === 'failed' ? `failed after ${e.attempts} tries — call them` : e.status;
+      const label = e.status === 'sent' ? (e.delivery === 'read' ? '✓✓ read' : e.delivery === 'delivered' ? '✓ delivered' : waHook.last ? 'accepted · waiting for delivery' : 'sent')
+        : e.status === 'pending' ? `retrying (${e.attempts || 0}/10)${e.lastError ? ' — ' + e.lastError : ''}` : e.status === 'failed' ? `failed after ${e.attempts} tries — call them` : e.status;
       const cls = /^sent/.test(e.status) ? 'ok' : /^test|^pending|^skipped/.test(e.status) ? 'test' : 'bad';
       const at = e.sentAt || e.lastAttemptAt || e.createdAt || e.at;
       return `<li><span class="st ${cls}">${esc(label)}</span><b>${esc(kind[e.kind] || e.kind)}</b> → ${esc(e.name)} ${esc(e.to || '')} · ${new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}<p>${esc(e.text)}</p></li>`;
@@ -347,6 +355,10 @@
       out.textContent = r.ok ? `Sent to ${r.to} ✓ — check WhatsApp. (Gupshup id ${r.id || '-'})` : `Not sent: ${r.error}`;
     } catch { out.className = 'wa-test-result bad'; out.textContent = 'Could not reach the server'; }
   });
+  $('#waHookCopy').onclick = async () => {
+    try { await navigator.clipboard.writeText(waHook.url); } catch { const t = document.createElement('textarea'); t.value = waHook.url; document.body.append(t); t.select(); document.execCommand('copy'); t.remove(); }
+    $('#waHookCopy').textContent = 'Copied ✓'; setTimeout(() => ($('#waHookCopy').textContent = 'Copy'), 1500);
+  };
   $('#failList').addEventListener('click', async (e) => {
     const b = e.target.closest('[data-fail]'); if (!b) return;
     b.disabled = true;

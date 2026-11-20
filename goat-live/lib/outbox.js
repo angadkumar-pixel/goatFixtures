@@ -76,15 +76,35 @@ async function failedAction(id, action) {
   return Object.assign({ ok: true }, await processQueue(null, 15000));
 }
 
+// Delivery reports from Gupshup: mark delivered / read, retry temporary failures, list permanent ones for a call.
+async function handleReports(payload) {
+  const reports = notify.parseReports(payload);
+  const sample = JSON.stringify(payload || {}).slice(0, 1500);
+  const hook = { at: Date.now(), reports: reports.length, sample };
+  if (!reports.length) { await fire.patch('goat_private', { hook_last: hook }); return { matched: 0 }; }
+  const logAll = (await fire.get('goat_private/log', `&orderBy=${encodeURIComponent('"$key"')}&limitToLast=400`)) || {};
+  const changed = notify.applyReports(reports, Object.values(logAll));
+  const writes = { hook_last: hook };
+  for (const d of changed) {
+    writes['log/' + logKey(d)] = d;
+    if (d.status === 'pending') writes['queue/' + d.id] = d;          // temporary failure → retry
+    if (d.status === 'failed') writes['failed/' + d.id] = d;          // permanent → "call these players"
+  }
+  await fire.patch('goat_private', writes);
+  return { reports: reports.length, matched: changed.length };
+}
+
 async function adminData() {
-  const [contacts, logAll, failed, queue] = await Promise.all([
+  const [contacts, logAll, failed, queue, hook] = await Promise.all([
     fire.get('goat_private/contacts'),
     fire.get('goat_private/log', `&orderBy=${encodeURIComponent('"$key"')}&limitToLast=150`),
     fire.get('goat_private/failed'),
     fire.get('goat_private/queue', '&shallow=true'),
+    fire.get('goat_private/hook_last'),
   ]);
   const log = Object.keys(logAll || {}).sort().reverse().map((k) => logAll[k]);
-  return { contacts: contacts || {}, log, failed: Object.values(failed || {}).sort((a, b) => b.lastAttemptAt - a.lastAttemptAt), pending: Object.keys(queue || {}).length };
+  return { contacts: contacts || {}, log, failed: Object.values(failed || {}).sort((a, b) => b.lastAttemptAt - a.lastAttemptAt),
+    pending: Object.keys(queue || {}).length, lastReport: hook ? hook.at : null };
 }
 
-module.exports = { saveContacts, afterChange, processQueue, failedAction, adminData };
+module.exports = { saveContacts, afterChange, processQueue, failedAction, adminData, handleReports };

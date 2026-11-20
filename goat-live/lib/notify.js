@@ -188,6 +188,65 @@ async function processDue(items, st, { claim, budgetMs = 20000 } = {}) {
   return done;
 }
 
+// ── Delivery reports (Gupshup → our webhook) ──
+// "Accepted" by Gupshup ≠ delivered. WhatsApp reports later: sent / delivered / read / failed (+ reason).
+// Meta error codes that are temporary (worth retrying); anything else is permanent → call the player.
+const TEMPORARY = new Set([130429, 131000, 131016, 131048, 131056, 133004, 133010, 2]);
+// Accept both payload styles offered in Gupshup's webhook settings (Meta v3 and Gupshup v2), plus older flat formats.
+function parseReports(body) {
+  const out = [], push = (e) => { if (e.status) out.push(e); };
+  const one = (o) => {
+    if (!o || typeof o !== 'object') return;
+    if (Array.isArray(o)) return o.forEach(one);
+    // Meta format (v3): entry[].changes[].value.statuses[]
+    if (o.entry) return (o.entry || []).forEach((en) => (en.changes || []).forEach((ch) => ((ch.value && ch.value.statuses) || []).forEach((s) => {
+      const err = (s.errors && s.errors[0]) || {};
+      push({ ids: [s.id, s.gs_id, s.meta_msg_id].filter(Boolean), phone: s.recipient_id, status: String(s.status || '').toLowerCase(),
+        code: Number(err.code) || 0, reason: [err.title, err.error_data && err.error_data.details, err.message].filter(Boolean).join(' — '), at: Number(s.timestamp) * 1000 || Date.now() });
+    })));
+    // Gupshup format (v2): { type: 'message-event', payload: { id, gsId, type, destination, payload: { code, reason } } }
+    if (o.type === 'message-event' && o.payload) {
+      const p = o.payload, inner = p.payload || {};
+      return push({ ids: [p.id, p.gsId, p.messageId].filter(Boolean), phone: p.destination, status: String(p.type || '').toLowerCase(),
+        code: Number(inner.code) || 0, reason: inner.reason || '', at: Number(o.timestamp) || Date.now() });
+    }
+    // older flat delivery-report formats (externalId / phoneNo / status / cause …)
+    const st = o.status || o.eventType || o.event || o.deliveryStatus;
+    if (st && (o.phoneNo || o.destAddr || o.destination || o.phone || o.recipient || o.externalId)) {
+      let s = String(st).toLowerCase();
+      if (/^(success|delivrd|delivered)$/.test(s)) s = 'delivered'; else if (/fail|undeliv|reject|expired|error/.test(s)) s = 'failed';
+      push({ ids: [o.externalId, o.id, o.messageId, o.gsId].filter(Boolean).map(String), phone: o.phoneNo || o.destAddr || o.destination || o.phone || o.recipient,
+        status: s, code: Number(o.errCode || o.code) || 0, reason: o.cause || o.reason || o.description || '', at: Number(o.deliveredTS || o.timestamp) || Date.now() });
+    }
+  };
+  one(body);
+  return out;
+}
+const RANK = { sent: 1, delivered: 2, read: 3 };
+// Apply reports to recent deliveries. Returns the deliveries that changed.
+function applyReports(reports, recent, now = Date.now()) {
+  const changed = new Map();
+  for (const r of reports) {
+    const phone = normPhone(r.phone);
+    // 1) exact message id  2) otherwise the latest message to that number in the last 6 hours
+    let d = recent.find((x) => x.providerId && r.ids.includes(String(x.providerId)));
+    if (!d && phone) d = recent.filter((x) => x.to === '+' + phone && (x.sentAt || 0) > now - 6 * 3600e3 && (x.sentAt || 0) <= (r.at || now) + 120e3)
+      .sort((a, b) => (b.sentAt || 0) - (a.sentAt || 0))[0];
+    if (!d || d.status !== 'sent') continue;
+    if (r.status === 'failed') {
+      d.lastError = (r.code ? `WhatsApp ${r.code}: ` : 'WhatsApp: ') + (r.reason || 'not delivered');
+      d.delivery = 'failed';
+      if (TEMPORARY.has(r.code) && (d.attempts || 0) < MAX_ATTEMPTS) { d.status = 'pending'; d.nextAt = now + BACKOFF[d.attempts || 0]; }
+      else d.status = 'failed'; // permanent (not on WhatsApp, blocked, invalid…) → call them
+      changed.set(d.id, d);
+    } else if (RANK[r.status] && RANK[r.status] > (RANK[d.delivery] || 0)) {
+      d.delivery = r.status; d.deliveryAt = r.at || now;
+      changed.set(d.id, d);
+    }
+  }
+  return [...changed.values()];
+}
+
 // One real message to check the setup (Control Room → WhatsApp → Send test).
 async function testSend(phone, kind = 'next') {
   const to = normPhone(phone);
@@ -198,4 +257,4 @@ async function testSend(phone, kind = 'next') {
   return Object.assign({ to: '+' + to, text: PREVIEW[kind](p) }, r);
 }
 
-module.exports = { plan, followUps, processDue, stillRelevant, detect, normPhone, status, configured, PREVIEW, testSend, MAX_ATTEMPTS };
+module.exports = { plan, followUps, processDue, stillRelevant, detect, normPhone, status, configured, PREVIEW, testSend, MAX_ATTEMPTS, parseReports, applyReports };

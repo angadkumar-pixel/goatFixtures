@@ -136,6 +136,14 @@ button.small { padding: 6px 10px; font-size: 13px; color: var(--mute); }
 .wa-head { display: flex; align-items: center; gap: 10px; margin: 8px 0; font-size: 13px; color: var(--mute); }
 .wa-head span { flex: 1; }
 .wa-head button.on { background: var(--green); border-color: var(--green); color: #032; font-weight: 700; }
+.wa-hook { margin: 0 0 10px; padding: 10px; border: 1px solid var(--line2); border-radius: 10px; font-size: 13px; color: var(--mute); }
+.wa-hook[hidden] { display: none; }
+.wa-hook b { color: var(--text); }
+.wa-hook .on { color: var(--green); font-weight: 700; } .wa-hook .off { color: var(--gold); font-weight: 700; }
+.hook-row { display: flex; gap: 6px; align-items: center; margin: 6px 0; }
+.hook-row code { flex: 1; min-width: 0; overflow-wrap: anywhere; font: 600 12px ui-monospace, Consolas, monospace; color: var(--gold); background: #070c24; padding: 6px 8px; border-radius: 6px; }
+.hook-row button { padding: 6px 10px; font-size: 12px; }
+.wa-hook small { display: block; font-size: 11px; line-height: 1.4; }
 .wa-test { display: grid; grid-template-columns: 1fr auto auto; gap: 6px; margin-bottom: 6px; }
 .wa-test select { width: auto; }
 .wa-test-result { margin: 0 0 8px; font-size: 13px; }

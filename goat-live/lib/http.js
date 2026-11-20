@@ -20,4 +20,7 @@ async function body(req) {
   const chunks = []; for await (const c of req) chunks.push(c);
   try { return JSON.parse(Buffer.concat(chunks).toString() || '{}'); } catch { return {}; }
 }
-module.exports = { PASSWORD, SECRET, json, fail, isHttps, clientIp, body };
+// Secret part of the delivery-report address given to Gupshup (so nobody else can post fake reports).
+const HOOK_KEY = crypto.createHmac('sha256', SECRET).update('wa-delivery-reports').digest('hex').slice(0, 32);
+
+module.exports = { PASSWORD, SECRET, HOOK_KEY, json, fail, isHttps, clientIp, body };
