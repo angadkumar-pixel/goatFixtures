@@ -1,12 +1,12 @@
 // THE GOAT — live fixtures board.
-// Performance: every animation is pre-computed ("baked") into Web Animations keyframes on transform/opacity only,
-// so the GPU compositor plays them and phones stay smooth even when the page's main thread is busy.
+// Performance: every animation is a handful of key moments per element (transform/opacity only) handed to the GPU
+// compositor, which fills in the motion. Nothing is pre-computed frame by frame, so the show starts instantly and
+// stays smooth on phones and TVs even while the page is busy loading.
 (() => {
   const SLOTS = 10, RW = 760, RH = 112;
   const fc = (v) => Math.max(0, Math.min(1, v));
   const fr = (t, s, e) => fc((t - s) / (e - s));
   const fl = (a, b, p) => a + (b - a) * p;
-  const eOut = (p) => 1 - Math.pow(1 - p, 3);
   const eIO = (p) => (p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2);
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -25,7 +25,7 @@
   const fin = (a) => (a.finished ? a.finished.catch(() => {}) : new Promise((res) => { a.onfinish = res; a.oncancel = res; }));
 
   const vp = $('viewport'), stage = $('stage'), camEl = $('cam'), rowsEl = $('rows'), bgDark = $('bgDark'), beamsEl = $('beams'),
-    panel = $('panel'), glow = $('panelGlow'), traceSvg = $('traceSvg'), trace = $('trace'), traceGlow = $('traceGlow'),
+    panel = $('panel'), glow = $('panelGlow'), traceBox = $('traceBox'), traceRing = $('traceRing'), traceEdges = [...document.querySelectorAll('#traceBox .te')],
     heading = $('heading'), chrome = $('chrome'), sweepEl = $('sweep'), spot = $('spot'),
     statusEl = $('status'), clockEl = $('clock'), moreEl = $('more');
 
@@ -49,7 +49,7 @@
       clock: { right: ox + 168, top: 80 + oy * 0.5 }, more: { top: H - 76 },
       slot: (i) => ({ x: ox + (i < 5 ? 170 : 990), y: oy + 372 + (i % 5) * 128 }) };
   }
-  let L = null, PERIM = 0, FULL = { cx: 960, cy: 540, z: 1 };
+  let L = null, FULL = { cx: 960, cy: 540, z: 1 };
   const px = (o) => Object.keys(o).reduce((r, k) => { r[k] = o[k] + 'px'; return r; }, {});
   function slotBox(i) {
     const { x, y } = L.slot(i);
@@ -67,10 +67,7 @@
     const p = L.panel;
     Object.assign(panel.style, px({ left: p.x, top: p.y, width: p.w, height: p.h }));
     Object.assign(glow.style, px({ left: p.x, top: p.y, width: p.w, height: p.h }));
-    traceSvg.setAttribute('width', L.W); traceSvg.setAttribute('height', L.H);
-    for (const r of [trace, traceGlow]) for (const [k, v] of Object.entries({ x: p.x, y: p.y, width: p.w, height: p.h })) r.setAttribute(k, v);
-    PERIM = 2 * (p.w + p.h);
-    for (const r of [trace, traceGlow]) r.style.strokeDasharray = PERIM;
+    Object.assign(traceBox.style, px({ left: p.x, top: p.y, width: p.w, height: p.h }));
     Object.assign(heading.style, px(L.heading));
     Object.assign(statusEl.style, px(L.status));
     Object.assign(clockEl.style, px(L.clock));
@@ -93,12 +90,21 @@
   }
   addEventListener('resize', onResize);
 
-  // ── baking: sample a function into keyframes and hand it to the compositor ──
-  function track(list, el, t0, t1, fn, fps = 60) {
-    const n = Math.max(2, Math.ceil((t1 - t0) * fps) + 1), kf = new Array(n);
-    for (let k = 0; k < n; k++) kf[k] = fn(t0 + ((t1 - t0) * k) / (n - 1));
-    const a = el.animate(kf, { duration: Math.max(1, (t1 - t0) * 1000), delay: t0 * 1000, fill: 'both', easing: 'linear' });
-    list.push(a);
+  // ── key moments → one compositor animation per element ──
+  const EIO = 'cubic-bezier(.65,0,.35,1)', OUT = 'cubic-bezier(.22,1,.36,1)', OUT3 = 'cubic-bezier(.33,1,.68,1)', IN = 'cubic-bezier(.55,0,1,.45)', OUTQ = 'cubic-bezier(0,.55,.45,1)';
+  // pts: [{ t: seconds, v: {css}, e: easing to the next point }]; the animation spans 0..total with fill both.
+  function keys(A, el, pts, total) {
+    pts = pts.filter((p, k) => k === 0 || p.t > pts[k - 1].t - 1e-9).sort((a, b) => a.t - b.t);
+    const frames = [];
+    pts.forEach((p) => {
+      const off = Math.min(1, Math.max(0, p.t / total));
+      if (frames.length && off <= frames[frames.length - 1].offset) frames.pop(); // same moment twice → keep the later
+      frames.push(Object.assign({}, p.v, { offset: off, easing: p.e || 'linear' }));
+    });
+    if (frames[0].offset > 0) frames.unshift(Object.assign({}, pts[0].v, { offset: 0, easing: 'linear' }));
+    if (frames[frames.length - 1].offset < 1) frames.push(Object.assign({}, pts[pts.length - 1].v, { offset: 1 }));
+    const a = el.animate(frames, { duration: total * 1000, fill: 'both' });
+    A.push(a);
     return a;
   }
   function startTogether(list) { const t = document.timeline.currentTime; list.forEach((a) => { a.startTime = t; }); }
@@ -125,11 +131,9 @@
   function applyCam() { camEl.style.transform = camTransform(cam); }
   async function camTo(t, ms) {
     if (skipMotion()) { Object.assign(cam, t); return applyCam(); }
-    const s = { ...cam }, A = [];
-    track(A, camEl, 0, ms / 1000, (T) => { const e = eIO(T / (ms / 1000)); return { transform: camTransform({ cx: fl(s.cx, t.cx, e), cy: fl(s.cy, t.cy, e), z: fl(s.z, t.z, e) }) }; });
-    startTogether(A);
-    await fin(A[0]);
-    Object.assign(cam, t); applyCam(); endAll(A);
+    const a = camEl.animate([{ transform: camTransform(cam) }, { transform: camTransform(t) }], { duration: ms, easing: EIO, fill: 'forwards' });
+    await fin(a);
+    Object.assign(cam, t); applyCam(); a.cancel();
   }
 
   // ── rows ──
@@ -149,10 +153,18 @@
     r.seenReady = m.readyAt || 0; // a row that is already "ready" when first drawn doesn't trigger the zoom
     return r;
   }
-  function fitName(el) {
-    let s = 38; el.style.fontSize = s + 'px';
-    while (el.offsetWidth > 292 && s > 20) { s -= 2; el.style.fontSize = s + 'px'; }
+  // Shrink long names to fit: one measurement each (reads batched, then writes), never a measure-resize loop.
+  function fitAll(list) {
+    const els = []; list.forEach((r) => els.push(r.na, r.nb));
+    els.forEach((el) => { el.style.fontSize = '38px'; });
+    const widths = els.map((el) => el.offsetWidth);
+    els.forEach((el, k) => { if (widths[k] > 292) el.style.fontSize = Math.max(20, Math.floor((38 * 292) / widths[k])) + 'px'; });
   }
+  let toFit = [];
+  const fitName = (el) => { // batched: all names changed in this pass are measured together
+    if (!toFit.length) Promise.resolve().then(() => { const l = toFit; toFit = []; fitAll(l.map((e) => ({ na: e, nb: e }))); });
+    toFit.push(el);
+  };
   function fmtLeft(at) {
     const s = Math.max(0, Math.ceil((at - GoatLive.now()) / 1000));
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
@@ -222,24 +234,28 @@
     r.slot = slot;
   }
 
-  // The original "slam" arrival (big → overshoot → settle, plates slide in, V punches, flash + ring), baked per row.
-  function bakeSlam(A, r, te) {
-    const D = 0.95, P = (dt) => fr(dt, 0, 0.6), slide = (dt) => 1 - eOut(fr(dt, 0, 0.35)), vP = (dt) => fr(dt, 0.12, 0.42);
-    const sc = (p) => (p < 0.5 ? fl(1.6, 0.96, eOut(p / 0.5)) : p < 0.75 ? fl(0.96, 1.08, eOut((p - 0.5) / 0.25)) : fl(1.08, 1, eOut((p - 0.75) / 0.25)));
-    track(A, r.card, te, te + D, (T) => { const dt = T - te; return { transform: `scale(${sc(P(dt))})`, opacity: fr(dt, 0, 0.12) }; }, LITE ? 30 : 60);
+  // The "slam" arrival (big → overshoot → settle, plates slide in, V punches, flash + ring) as key moments from time te.
+  function slamKeys(A, r, te, total) {
+    const S = (s) => `scale(${s})`;
+    keys(A, r.card, [{ t: 0, v: { opacity: 0, transform: S(1.6) } }, { t: te, v: { opacity: 0, transform: S(1.6) }, e: OUT3 },
+      { t: te + 0.07, v: { opacity: 0.6, transform: S(1.3) }, e: OUT3 }, { t: te + 0.3, v: { opacity: 1, transform: S(0.96) }, e: OUT3 },
+      { t: te + 0.45, v: { opacity: 1, transform: S(1.08) }, e: OUT3 }, { t: te + 0.6, v: { opacity: 1, transform: S(1) } }], total);
     if (LITE) return; // TV: the card itself slams in; skip the extra plate/ring/flash layers
-    track(A, r.pa, te, te + D, (T) => ({ transform: `translateX(${-160 * slide(T - te)}px)` }));
-    track(A, r.pb, te, te + D, (T) => ({ transform: `translateX(${160 * slide(T - te)}px)` }));
-    track(A, r.vs, te, te + D, (T) => { const v = vP(T - te); return { transform: `scale(${fl(3, 1, eOut(v))})`, opacity: fc(v * 3) }; });
-    track(A, r.chip, te, te + D, (T) => ({ transform: `translateY(${-30 * slide(T - te)}px)` }), 30);
-    track(A, r.flash, te, te + D, (T) => { const dt = T - te; return { opacity: (1 - fr(dt, 0.3, 0.75)) * 0.85 * fc(P(dt) * 4) }; }, 30);
-    track(A, r.ring, te, te + D, (T) => { const g = fr(T - te, 0.3, 0.9); return { opacity: g > 0 && g < 1 ? 1 - g : 0, transform: `scale(${fl(0.3, 3.2, eOut(g))})` }; });
+    const X = (x) => ({ transform: `translateX(${x}px)` });
+    keys(A, r.pa, [{ t: 0, v: X(-160) }, { t: te, v: X(-160), e: OUT3 }, { t: te + 0.35, v: X(0) }], total);
+    keys(A, r.pb, [{ t: 0, v: X(160) }, { t: te, v: X(160), e: OUT3 }, { t: te + 0.35, v: X(0) }], total);
+    keys(A, r.vs, [{ t: 0, v: { opacity: 0, transform: S(3) } }, { t: te + 0.12, v: { opacity: 0, transform: S(3) }, e: OUT3 },
+      { t: te + 0.22, v: { opacity: 1, transform: S(1.6) }, e: OUT3 }, { t: te + 0.42, v: { opacity: 1, transform: S(1) } }], total);
+    keys(A, r.chip, [{ t: 0, v: { transform: 'translateY(-30px)' } }, { t: te, v: { transform: 'translateY(-30px)' }, e: OUT3 }, { t: te + 0.35, v: { transform: 'translateY(0)' } }], total);
+    keys(A, r.flash, [{ t: 0, v: { opacity: 0 } }, { t: te, v: { opacity: 0 } }, { t: te + 0.15, v: { opacity: 0.85 } }, { t: te + 0.3, v: { opacity: 0.85 } }, { t: te + 0.75, v: { opacity: 0 } }], total);
+    keys(A, r.ring, [{ t: 0, v: { opacity: 0, transform: S(0.3) } }, { t: te + 0.3, v: { opacity: 0, transform: S(0.3) } }, { t: te + 0.31, v: { opacity: 1, transform: S(0.3) }, e: OUT3 },
+      { t: te + 0.9, v: { opacity: 0, transform: S(3.2) } }], total);
   }
   async function slam(r) {
     r.card.style.opacity = '';
     if (skipMotion()) return;
     const A = [];
-    bakeSlam(A, r, 0);
+    slamKeys(A, r, 0, 0.95);
     startTogether(A);
     await fin(A[0]);
     endAll(A);
@@ -315,124 +331,92 @@
     if (zoomed) await camTo(FULL, 900);
   }
 
-  // ── intro (same choreography as the original video), baked for the GPU ──
+  // ── intro: lights, panel trace, heading slam, camera diving onto every match, reveal ──
+  // Described as key moments per element; the graphics chip fills in the motion, so it starts instantly and can't fall behind.
   let introAnims = [], introDone = null;
   function setFinal() {
-    bgDark.style.opacity = 0; beamsEl.style.opacity = 0; panel.style.opacity = 1; glow.style.opacity = 0;
-    trace.style.strokeDashoffset = 0; traceGlow.style.strokeDashoffset = 0;
+    bgDark.style.opacity = 0; beamsEl.style.opacity = 0; panel.style.opacity = 1; glow.style.opacity = 0; traceBox.style.opacity = 1;
     heading.style.opacity = 1; heading.style.transform = ''; chrome.style.opacity = 1;
+    rows.forEach((r) => { r.card.style.opacity = ''; });
     Object.assign(cam, FULL); applyCam();
   }
   function abortIntro() { if (introDone) introDone(); }
-  function playIntro() {
+  const frame = () => new Promise((r) => requestAnimationFrame(() => r()));
+  async function playIntro() {
     mode = 'intro';
     lastIntroAt = Date.now();
     rows.forEach((r) => r.el.remove()); rows.clear();
-    const rs = latest.matches.slice(0, SLOTS).map((m, i) => { const r = buildRow(m); place(r, i, false); return r; });
-    if (skipMotion()) { setFinal(); return Promise.resolve(); }
-    if (LITE) return playIntroLite(rs);
-    const slot = 1.1, C = { Lights: 1, Matches: 3.6 };
-    C.Reveal = C.Matches + Math.max(1, rs.length) * slot;
-    const total = C.Reveal + 2.6;
-    const A = (introAnims = []);
-    const camAt = (T) => {
-      if (rs.length && T >= C.Matches && T < C.Reveal) {
-        const i = Math.min(rs.length - 1, Math.floor((T - C.Matches) / slot)), s0 = C.Matches + i * slot;
-        const prev = i === 0 ? FULL : { ...slotBox(i - 1), z: L.dive }, cur = slotBox(i);
-        const p = eIO(fr(T, s0, s0 + (i === 0 ? 0.6 : 0.38))), hit = s0 + 0.55;
-        return { cx: fl(prev.cx, cur.cx, p), cy: fl(prev.cy, cur.cy, p), z: fl(prev.z, L.dive, p) - Math.sin(p * Math.PI) * (i === 0 ? 0 : 0.18 * (L.dive - 1) / 0.85),
-          shake: T > hit ? Math.exp(-(T - hit) * 14) : 0 };
-      }
-      if (rs.length && T >= C.Reveal) {
-        const last = slotBox(rs.length - 1), p = eIO(fr(T, C.Reveal, C.Reveal + 1.5));
-        return { cx: fl(last.cx, FULL.cx, p), cy: fl(last.cy, FULL.cy, p), z: fl(L.dive, 1, p), shake: 0 };
-      }
-      return { ...FULL, shake: 0 };
-    };
-    track(A, camEl, 0, total, (T) => { const c = camAt(T); return { transform: camTransform(c, Math.sin(T * 90) * 9 * c.shake, Math.cos(T * 77) * 6 * c.shake) }; });
-    const dark = (T) => 1 - eIO(fr(T, C.Reveal + 0.2, C.Reveal + 1.6));
-    track(A, bgDark, 0, C.Reveal + 1.6, (T) => ({ opacity: dark(T) }), 30);
-    if (!LITE) track(A, beamsEl, 0, C.Reveal + 1.6, (T) => ({ opacity: dark(T) }), 30);
-    if (!LITE) BEAMS.forEach((b, i) => {
-      const on = (T) => fr(T, C.Lights + i * 0.18, C.Lights + i * 0.18 + 0.12);
-      track(A, b.d, 0, C.Reveal + 1.6, (T) => ({
-        transform: `rotate(${fl(b.a0, b.a1, eIO(fr(T, C.Lights, C.Matches))) + Math.sin(T * 1.6 + b.ph) * 6}deg)`,
-        opacity: on(T) * (0.85 + 0.15 * Math.sin(T * 9 + i)) }), 30);
-      track(A, b.h, 0, C.Lights + 1, (T) => ({ opacity: on(T) }), 30);
-    });
-    track(A, panel, C.Lights + 0.9, C.Lights + 1.6, (T) => ({ opacity: eOut(fr(T, C.Lights + 0.9, C.Lights + 1.6)) }), 30);
-    if (!LITE) track(A, glow, C.Lights + 0.9, C.Reveal + 1.6, (T) => ({ opacity: eOut(fr(T, C.Lights + 0.9, C.Lights + 1.6)) * dark(T) }), 30);
-    for (const r of [trace, traceGlow]) {
-      A.push(r.animate([{ strokeDashoffset: PERIM }, { strokeDashoffset: 0 }], { duration: 1000, delay: (C.Lights + 0.5) * 1000, fill: 'both' }));
-    }
-    track(A, heading, C.Lights + 1.3, C.Lights + 1.9, (T) => {
-      const hp = fr(T, C.Lights + 1.3, C.Lights + 1.9);
-      return { opacity: fc(hp * 3), transform: `scale(${hp < 0.6 ? fl(1.5, 0.97, eOut(hp / 0.6)) : fl(0.97, 1, eOut((hp - 0.6) / 0.4))})` };
-    });
-    track(A, chrome, C.Reveal + 0.8, C.Reveal + 1.8, (T) => ({ opacity: fr(T, C.Reveal + 0.8, C.Reveal + 1.8) }), 30);
-    track(A, sweepEl, C.Reveal + 1.4, C.Reveal + 2.4, (T) => ({ transform: `translateX(${fl(0, L.panel.w + 700, fr(T, C.Reveal + 1.4, C.Reveal + 2.4))}px) rotate(18deg)` }));
-    rs.forEach((r, i) => bakeSlam(A, r, C.Matches + i * slot + 0.25));
-    startTogether(A);
-    return new Promise((res) => {
-      let t;
-      introDone = () => { clearTimeout(t); introDone = null; setFinal(); endAll(A); introAnims = []; res(); };
-      t = setTimeout(() => introDone && introDone(), total * 1000 + 50);
-    });
-  }
-
-  // TV version of the intro: the same choreography (lights, panel trace, heading slam, camera diving onto every
-  // match, reveal) described by a few key moments per element. The TV's graphics chip fills in the motion,
-  // so nothing heavy is calculated up front and it can't fall behind.
-  function playIntroLite(rs) {
+    const rs = latest.matches.slice(0, SLOTS).map((m, i) => { const r = buildRow(m); place(r, i, false); r.card.style.opacity = 0; return r; });
+    fitAll(rs);
+    if (skipMotion()) { setFinal(); return; }
+    // let the browser lay out and paint the new rows (screen is still dark) before the clock starts
+    await frame(); await frame();
     const slot = 1.1, C = { Lights: 1, Matches: 3.6 };
     C.Reveal = C.Matches + Math.max(1, rs.length) * slot;
     const total = C.Reveal + 2.6, A = (introAnims = []);
-    const EIO = 'cubic-bezier(.65,0,.35,1)', OUT = 'cubic-bezier(.22,1,.36,1)';
-    const kf = (el, pts) => {
-      const frames = pts.map((p) => Object.assign({}, p.v, { offset: Math.min(1, Math.max(0, p.t / total)), easing: p.e || 'linear' }));
-      if (frames[0].offset > 0) frames.unshift(Object.assign({}, pts[0].v, { offset: 0 }));
-      if (frames[frames.length - 1].offset < 1) frames.push(Object.assign({}, pts[pts.length - 1].v, { offset: 1 }));
-      A.push(el.animate(frames, { duration: total * 1000, fill: 'both' }));
-    };
-    // camera: hold, dive onto each match as it slams in, then pull back to the full board
-    const cam = (c) => ({ transform: camTransform(c) });
-    const camPts = [{ t: 0, v: cam(FULL) }];
+    const K = (el, pts) => keys(A, el, pts, total);
+
+    // camera: hold, dive onto each match as it slams in (with a little dip between rows and a shake on impact), pull back
+    const camV = (c, sx = 0, sy = 0) => ({ transform: camTransform(c, sx, sy) });
+    const camPts = [{ t: 0, v: camV(FULL) }];
     rs.forEach((r, i) => {
-      const s0 = C.Matches + i * slot;
-      camPts.push({ t: s0, v: cam(i === 0 ? FULL : Object.assign({}, slotBox(i - 1), { z: L.dive })), e: EIO });
-      camPts.push({ t: s0 + (i === 0 ? 0.6 : 0.38), v: cam(Object.assign({}, slotBox(i), { z: L.dive })) });
+      const s0 = C.Matches + i * slot, d = i === 0 ? 0.6 : 0.38;
+      const prev = i === 0 ? FULL : Object.assign({}, slotBox(i - 1), { z: L.dive }), cur = Object.assign({}, slotBox(i), { z: L.dive });
+      if (i === 0) camPts.push({ t: s0, v: camV(prev), e: EIO }, { t: s0 + d, v: camV(cur) });
+      else {
+        const dip = (0.18 * (L.dive - 1)) / 0.85, mid = { cx: (prev.cx + cur.cx) / 2, cy: (prev.cy + cur.cy) / 2, z: L.dive - dip };
+        camPts.push({ t: s0, v: camV(prev), e: IN }, { t: s0 + d / 2, v: camV(mid), e: OUTQ }, { t: s0 + d, v: camV(cur) });
+      }
+      if (!LITE) { // impact shake as the card lands
+        const hit = s0 + Math.max(0.55, d + 0.02);
+        [[0, 0], [0.03, 8, -5], [0.07, -6, 4], [0.12, 4, -3], [0.18, -2, 1], [0.26, 0, 0]].forEach(([dt, sx = 0, sy = 0]) => camPts.push({ t: hit + dt, v: camV(cur, sx, sy) }));
+      }
     });
     if (rs.length) {
-      camPts.push({ t: C.Reveal, v: cam(Object.assign({}, slotBox(rs.length - 1), { z: L.dive })), e: EIO });
-      camPts.push({ t: C.Reveal + 1.5, v: cam(FULL) });
+      camPts.push({ t: C.Reveal, v: camV(Object.assign({}, slotBox(rs.length - 1), { z: L.dive })), e: EIO });
+      camPts.push({ t: C.Reveal + 1.5, v: camV(FULL) });
     }
-    kf(camEl, camPts);
+    K(camEl, camPts);
+
     // darkness and light beams
     const darkPts = [{ t: 0, v: { opacity: 1 } }, { t: C.Reveal + 0.2, v: { opacity: 1 }, e: EIO }, { t: C.Reveal + 1.6, v: { opacity: 0 } }];
-    kf(bgDark, darkPts); kf(beamsEl, darkPts);
+    K(bgDark, darkPts); K(beamsEl, darkPts);
     BEAMS.forEach((b, i) => {
       const on = C.Lights + i * 0.18;
-      const rot = (t) => 'rotate(' + fl(b.a0, b.a1, eIO(fr(t, C.Lights, C.Matches))) + 'deg)';
-      const times = [0, on, on + 0.12, C.Lights + 0.8, C.Lights + 1.4, C.Lights + 2, C.Matches, C.Matches + 2].filter((t, k, arr) => k === 0 || t > arr[k - 1]);
-      kf(b.d, times.map((t) => ({ t, v: { opacity: t < on + 0.12 ? 0 : 0.9, transform: rot(t) } })));
-      kf(b.h, [{ t: 0, v: { opacity: 0 } }, { t: on, v: { opacity: 0 } }, { t: on + 0.12, v: { opacity: 1 } }]);
+      const rot = (t) => `rotate(${fl(b.a0, b.a1, eIO(fr(t, C.Lights, C.Matches))) + (LITE ? 0 : Math.sin(t * 1.6 + b.ph) * 6)}deg)`;
+      const times = [0, on, on + 0.12];
+      for (let t = on + 0.5; t < C.Reveal + 1.6; t += LITE ? 1 : 0.5) times.push(t); // gentle sway, a point every half second
+      K(b.d, times.map((t) => ({ t, v: { opacity: t < on + 0.12 ? 0 : 0.9, transform: rot(t) }, e: 'ease-in-out' })));
+      K(b.h, [{ t: 0, v: { opacity: 0 } }, { t: on, v: { opacity: 0 } }, { t: on + 0.12, v: { opacity: 1 } }]);
     });
-    kf(panel, [{ t: 0, v: { opacity: 0 } }, { t: C.Lights + 0.9, v: { opacity: 0 }, e: OUT }, { t: C.Lights + 1.6, v: { opacity: 1 } }]);
-    for (const r of [trace, traceGlow]) A.push(r.animate([{ strokeDashoffset: PERIM }, { strokeDashoffset: 0 }], { duration: 1000, delay: (C.Lights + 0.5) * 1000, fill: 'both' }));
+    K(panel, [{ t: 0, v: { opacity: 0 } }, { t: C.Lights + 0.9, v: { opacity: 0 }, e: OUT3 }, { t: C.Lights + 1.6, v: { opacity: 1 } }]);
+    if (!LITE) K(glow, [{ t: 0, v: { opacity: 0 } }, { t: C.Lights + 0.9, v: { opacity: 0 }, e: OUT3 }, { t: C.Lights + 1.6, v: { opacity: 1 } },
+      { t: C.Reveal + 0.2, v: { opacity: 1 }, e: EIO }, { t: C.Reveal + 1.6, v: { opacity: 0 } }]);
+    { // gold outline runs around the panel (top → right → bottom → left), then the rounded frame settles in
+      const t0 = C.Lights + 0.5, w = L.panel.w, h = L.panel.h, per = 2 * (w + h);
+      let at = t0;
+      K(traceBox, [{ t: 0, v: { opacity: 0 } }, { t: t0, v: { opacity: 0 } }, { t: t0 + 0.01, v: { opacity: 1 } }]);
+      traceEdges.forEach((el, k) => {
+        const len = k % 2 ? h : w, d = len / per, ax = k % 2 ? 'scaleY' : 'scaleX';
+        K(el, [{ t: 0, v: { transform: ax + '(0)' } }, { t: at, v: { transform: ax + '(0)' } }, { t: at + d, v: { transform: ax + '(1)' } }]);
+        at += d;
+      });
+      K(traceRing, [{ t: 0, v: { opacity: 0 } }, { t: at - 0.1, v: { opacity: 0 } }, { t: at + 0.25, v: { opacity: 1 } }]);
+    }
     const h0 = C.Lights + 1.3;
-    kf(heading, [{ t: 0, v: { opacity: 0, transform: 'scale(1.5)' } }, { t: h0, v: { opacity: 0, transform: 'scale(1.5)' }, e: OUT },
+    K(heading, [{ t: 0, v: { opacity: 0, transform: 'scale(1.5)' } }, { t: h0, v: { opacity: 0, transform: 'scale(1.5)' }, e: OUT },
       { t: h0 + 0.2, v: { opacity: 1, transform: 'scale(1.15)' }, e: OUT }, { t: h0 + 0.36, v: { opacity: 1, transform: 'scale(0.97)' }, e: OUT }, { t: h0 + 0.6, v: { opacity: 1, transform: 'scale(1)' } }]);
-    kf(chrome, [{ t: 0, v: { opacity: 0 } }, { t: C.Reveal + 0.8, v: { opacity: 0 } }, { t: C.Reveal + 1.8, v: { opacity: 1 } }]);
-    kf(sweepEl, [{ t: 0, v: { transform: 'translateX(0) rotate(18deg)' } }, { t: C.Reveal + 1.4, v: { transform: 'translateX(0) rotate(18deg)' }, e: 'cubic-bezier(.4,0,.2,1)' },
-      { t: C.Reveal + 2.4, v: { transform: 'translateX(' + (L.panel.w + 700) + 'px) rotate(18deg)' } }]);
-    // each match slams in: big → overshoot → settle
-    rs.forEach((r, i) => {
-      const te = C.Matches + i * slot + 0.25;
-      kf(r.card, [{ t: 0, v: { opacity: 0, transform: 'scale(1.6)' } }, { t: te, v: { opacity: 0, transform: 'scale(1.6)' }, e: OUT },
-        { t: te + 0.12, v: { opacity: 1, transform: 'scale(1.25)' }, e: OUT }, { t: te + 0.3, v: { opacity: 1, transform: 'scale(0.96)' }, e: OUT },
-        { t: te + 0.45, v: { opacity: 1, transform: 'scale(1.08)' }, e: OUT }, { t: te + 0.6, v: { opacity: 1, transform: 'scale(1)' } }]);
-    });
+    K(chrome, [{ t: 0, v: { opacity: 0 } }, { t: C.Reveal + 0.8, v: { opacity: 0 } }, { t: C.Reveal + 1.8, v: { opacity: 1 } }]);
+    K(sweepEl, [{ t: 0, v: { transform: 'translateX(0) rotate(18deg)' } }, { t: C.Reveal + 1.4, v: { transform: 'translateX(0) rotate(18deg)' }, e: 'cubic-bezier(.4,0,.2,1)' },
+      { t: C.Reveal + 2.4, v: { transform: `translateX(${L.panel.w + 700}px) rotate(18deg)` } }]);
+    rs.forEach((r, i) => slamKeys(A, r, C.Matches + i * slot + 0.25, total));
     startTogether(A);
+    // The first second is pure darkness. The browser prepares all the graphics now (that can take a moment on a
+    // slow phone), then the clock restarts from zero so nothing visible ever waits on that work.
+    await frame(); await frame(); await frame();
+    if (introAnims !== A) return; // replaced meanwhile
+    startTogether(A);
+    try { performance.mark('goat-intro'); } catch (e) {}
     return new Promise((res) => {
       let t;
       introDone = () => { clearTimeout(t); introDone = null; setFinal(); endAll(A); introAnims = []; res(); };
@@ -475,7 +459,7 @@
   lastW = innerWidth; lastH = innerHeight;
   applyLayout();
   bgDark.style.opacity = 1;
-  const fontsOrTimeout = Promise.race([document.fonts ? document.fonts.ready : sleep(0), sleep(1200)]);
+  const fontsOrTimeout = Promise.race([document.fonts && document.fonts.load ? Promise.all(['400 40px Anton', '700 40px "Barlow Condensed"', '600 40px "Barlow Condensed"'].map((f) => document.fonts.load(f))).catch(() => {}) : sleep(0), sleep(3000)]);
   window.onGoatLite = () => setLite(true);
   if (!window.GOAT_LITE_LOCKED && !LITE) { // auto-detect a struggling screen (e.g. a smart TV that does not say so)
     const gaps = []; let last = 0;
@@ -499,7 +483,7 @@
     maybeReplay();
   }, (ok) => $('conn').classList.toggle('show', !ok));
 
-  if (document.fonts) document.fonts.ready.then(() => rows.forEach((r) => { fitName(r.na); fitName(r.nb); }));
+  if (document.fonts) document.fonts.ready.then(() => fitAll([...rows.values()]));
 
   // ── clock ──
   let lastClock = '';

@@ -11,11 +11,9 @@
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <title>Live Fixtures · THE GOAT</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Anton&family=Barlow+Condensed:wght@500;600;700&display=swap">
-<link href="https://fonts.googleapis.com/css2?family=Anton&family=Barlow+Condensed:wght@500;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
-<noscript><link href="https://fonts.googleapis.com/css2?family=Anton&family=Barlow+Condensed:wght@500;600;700&display=swap" rel="stylesheet"></noscript>
+<link rel="preload" as="font" type="font/woff2" href="/fonts/anton.woff2" crossorigin>
+<link rel="preload" as="font" type="font/woff2" href="/fonts/barlow-700.woff2" crossorigin>
+<link rel="preload" as="font" type="font/woff2" href="/fonts/barlow-600.woff2" crossorigin>
 <link rel="stylesheet" href="/css/board.css">
 </head>
 <body>
@@ -27,7 +25,7 @@
     <div id="cam">
       <div class="panel-glow" id="panelGlow"></div>
       <div class="panel" id="panel"><div class="stripes"></div><div class="sweep" id="sweep"></div></div>
-      <svg class="trace" id="traceSvg"><rect id="traceGlow" rx="36"/><rect id="trace" rx="36"/></svg>
+      <div class="trace" id="traceBox"><i class="te t-top"></i><i class="te t-right"></i><i class="te t-bottom"></i><i class="te t-left"></i><b class="t-ring" id="traceRing"></b></div>
       <div class="heading" id="heading">
         <div class="kicker"><span class="rule l"></span><span id="title"></span><span class="rule r"></span></div>
         <div class="big">FIXTURES</div>
