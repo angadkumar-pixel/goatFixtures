@@ -217,13 +217,13 @@
       const start = (() => { const t = new Date(GoatLive.now()); if (t.getHours() < 9 || (t.getHours() === 9 && t.getMinutes() < 30)) { t.setHours(9, 30, 0, 0); } return Math.ceil(t.getTime() / 60000) * 60000; })();
       const ord = GoatDraw.order(all, { courts: courtsN, matchMin: s.matchMinutes || 20, restMin: s.restMinutes ?? 15, start });
       const span = {}; ord.forEach((m) => { const x = (span[m.cat] = span[m.cat] || { a: m.estStart, f: 0 }); x.a = Math.min(x.a, m.estStart); if (m.rd === 'F') x.f = m.estStart; });
-      html += `<table class="draw-sum"><tr><th>Category</th><th>Players</th><th>Draw</th><th>Byes</th><th>Round 1</th><th>Matches</th><th>Starts ~</th><th>Final ~</th></tr>` +
-        ds.map((d) => { const r1 = d.matches.filter((m) => m.round === 1).length; return `<tr><td><b>${esc(d.cat)}</b></td><td>${d.players}</td><td>${d.size}</td><td>${d.byes}</td><td>${r1}</td><td>${d.matches.length}</td><td>${fmtHM(span[d.cat].a)}</td><td>${fmtHM(span[d.cat].f)}</td></tr>`; }).join('') + '</table>';
+      html += `<table class="draw-sum"><tr><th>Category</th><th>Players</th><th>Round 1</th><th>Straight to next round</th><th>Matches</th><th>Starts ~</th><th>Final ~</th></tr>` +
+        ds.map((d) => { const r1 = d.matches.filter((m) => m.round === 1).length; return `<tr><td><b>${esc(d.cat)}</b></td><td>${d.players}</td><td>${r1} match${r1 === 1 ? '' : 'es'} (${r1 * 2} players)</td><td>${d.byes ? d.byes + (d.byes === 1 ? ' player' : ' players') : '–'}</td><td>${d.matches.length}</td><td>${fmtHM(span[d.cat].a)}</td><td>${fmtHM(span[d.cat].f)}</td></tr>`; }).join('') + '</table>';
       const last = ord.reduce((x, m) => (m.estStart > x.estStart ? m : x), ord[0]);
       html += `<p class="draw-note">${all.length} matches · ${courtsN} courts · ${s.matchMinutes || 20} min each · last match ~${fmtHM(last.estStart)}. Times are estimates (see ⚙ Courts &amp; timing).</p>`;
       html += ds.map((d) => `<details><summary>${esc(d.cat)} — Round 1 and byes</summary><ol class="draw-r1">` +
         d.matches.filter((m) => m.round === 1).map((m) => `<li>#${m.no} ${esc(m.a)} <i>V</i> ${esc(m.b)}</li>`).join('') +
-        (d.byes ? `<li class="bye">Bye to the next round: ${esc(d.matches.filter((m) => m.round === 2).flatMap((m) => [m.a, m.b]).filter(Boolean).join(', '))}</li>` : '') + '</ol></details>').join('');
+        (d.byes ? `<li class="bye">Start in the next round (no Round 1 match): ${esc(d.matches.filter((m) => m.round === 2).flatMap((m) => [m.a, m.b]).filter(Boolean).join(', '))}</li>` : '') + '</ol></details>').join('');
     } catch (e) { err = e.message; }
     const b = $('#bulkAdd');
     b.disabled = !!err; b.textContent = err ? 'Add' : `Create the draw (${all.length} matches)`;
