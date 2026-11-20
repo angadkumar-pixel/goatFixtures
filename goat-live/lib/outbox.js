@@ -8,6 +8,9 @@ const notify = require('./notify');
 const shared = require('../public/js/goat-shared');
 
 const logKey = (d) => `${d.createdAt}_${d.id}`;
+let popSeq = 0;
+const pop = (writes, d, status) => { writes['events/' + Date.now() + '_' + (popSeq++ % 1000) + '_' + status + '_' + d.id] = notify.pop(d, status); }; // pop-up in the Control Room
+const reportsWorking = async () => { const ok = await fire.get('goat_private/hook_ok'); return !!ok && Date.now() - ok < 2 * 3600e3; };
 const copy = (x) => JSON.parse(JSON.stringify(x));
 const norm = (st) => shared.normalize(copy(st), Date.now());
 
@@ -54,11 +57,14 @@ async function processQueue(st, budgetMs = 20000) {
   if (!items.length) return { processed: 0, pending: 0 };
   if (!st) st = norm((await fire.load()).st);
   const done = await notify.processDue(items, st, { claim, budgetMs });
-  const writes = {};
+  const writes = {}, reports = done.some((d) => d.status === 'sent') ? await reportsWorking() : true;
   for (const d of done) {
     delete d.lockUntil;
     writes['log/' + logKey(d)] = d;
     if (d.status === 'sent') writes['watch/' + d.id] = d;                 // wait for WhatsApp to confirm
+    if (d.status === 'sent' && !reports) pop(writes, d, 'sent');          // no delivery reports → at least say it went out
+    if (d.status === 'pending' && d.attempts === 1) pop(writes, d, 'retry');
+    if (d.status === 'failed') pop(writes, d, 'call');
     if (d.status === 'pending') writes['queue/' + d.id] = d;               // will retry later
     else {
       writes['queue/' + d.id] = null;                                      // finished: sent / skipped / failed
@@ -86,11 +92,16 @@ async function handleReports(payload, method = 'POST') {
   const hook = { at: Date.now(), reports: reports.length, matched: 0, sample: JSON.stringify(payload || {}).slice(0, 1500), method };
   if (!reports.length) { await fire.patch('goat_private', { hook_last: hook }); return { matched: 0 }; }
   const watch = (await fire.get('goat_private/watch')) || {};
+  const was = {}; Object.values(watch).forEach((w) => { if (w && w.id) was[w.id] = w.delivery || ''; });
   const changed = notify.applyReports(reports, Object.values(watch));
   const writes = { hook_last: Object.assign(hook, { matched: changed.length }) };
   if (changed.length) writes.hook_ok = hook.at;                       // reports are working → the watchdog may act
   for (const d of changed) {
     const k = 'log/' + logKey(d);
+    const seen = was[d.id] === 'delivered' || was[d.id] === 'read';
+    if (d.status === 'sent' && !seen && (d.delivery === 'delivered' || d.delivery === 'read')) pop(writes, d, 'delivered');
+    if (d.status === 'pending') pop(writes, d, 'retry');
+    if (d.status === 'failed') pop(writes, d, 'call');
     if (d.status === 'sent') {                                          // delivered / read: touch only those fields
       writes[k + '/delivery'] = d.delivery; writes[k + '/deliveryAt'] = d.deliveryAt;
       if (d.delivery === 'read') writes['watch/' + d.id] = null;
@@ -110,30 +121,40 @@ async function handleReports(payload, method = 'POST') {
 async function checkWatch(st) {
   const [watch, ok] = await Promise.all([fire.get('goat_private/watch'), fire.get('goat_private/hook_ok')]);
   const list = Object.entries(watch || {}).map(([id, v]) => Object.assign({ id }, v)); // id from the key (safe even for half-written entries)
-  if (!list.length) return;
   const working = ok && Date.now() - ok < 2 * 3600e3;
-  if (!st) st = norm((await fire.load()).st);
-  const r = notify.checkUnconfirmed(list, st);
   const writes = {};
+  if (list.length) { if (!st) st = norm((await fire.load()).st); }
+  const r = list.length ? notify.checkUnconfirmed(list, st) : { drop: [], resend: [], fail: [] };
   r.drop.forEach((id) => { writes['watch/' + id] = null; });
   if (working) {
-    r.resend.forEach((d) => { writes['watch/' + d.id] = null; writes['queue/' + d.id] = d; writes['log/' + logKey(d)] = d; });
-    r.fail.forEach((d) => { writes['watch/' + d.id] = null; writes['failed/' + d.id] = d; writes['log/' + logKey(d)] = d; });
+    r.resend.forEach((d) => { writes['watch/' + d.id] = null; writes['queue/' + d.id] = d; writes['log/' + logKey(d)] = d; pop(writes, d, 'retry'); });
+    r.fail.forEach((d) => { writes['watch/' + d.id] = null; writes['failed/' + d.id] = d; writes['log/' + logKey(d)] = d; pop(writes, d, 'call'); });
   }
+  // forget pop-ups older than an hour
+  const old = (await fire.get('goat_private/events', `&orderBy=${encodeURIComponent('"$key"')}&endAt=${encodeURIComponent('"' + (Date.now() - 3600e3) + '"')}&limitToFirst=300`)) || {};
+  const cutoff = Date.now() - 3600e3;
+  Object.keys(old).forEach((k) => { if (Number(k.split('_')[0]) < cutoff) writes['events/' + k] = null; }); // double-check the age ourselves
   if (Object.keys(writes).length) await fire.patch('goat_private', writes);
 }
 
+// Pop-ups since a moment (Control Room polls this every few seconds; usually empty).
+async function events(since) {
+  const ev = (await fire.get('goat_private/events', `&orderBy=${encodeURIComponent('"$key"')}&startAt=${encodeURIComponent('"' + (since + 1) + '"')}&limitToFirst=60`)) || {};
+  return Object.keys(ev).filter((k) => Number(k.split('_')[0]) > since).sort().map((k) => ev[k]);
+}
+
 async function adminData() {
-  const [contacts, logAll, failed, queue, hook] = await Promise.all([
+  const [contacts, logAll, failed, queue, hook, hookOk] = await Promise.all([
     fire.get('goat_private/contacts'),
     fire.get('goat_private/log', `&orderBy=${encodeURIComponent('"$key"')}&limitToLast=150`),
     fire.get('goat_private/failed'),
     fire.get('goat_private/queue', '&shallow=true'),
     fire.get('goat_private/hook_last'),
+    fire.get('goat_private/hook_ok'),
   ]);
   const log = Object.keys(logAll || {}).sort().reverse().map((k) => logAll[k]);
   return { contacts: contacts || {}, log, failed: Object.values(failed || {}).sort((a, b) => b.lastAttemptAt - a.lastAttemptAt),
-    pending: Object.keys(queue || {}).length, lastReport: hook ? hook.at : null, hook: hook || null };
+    pending: Object.keys(queue || {}).length, lastReport: hook ? hook.at : null, hook: hook || null, hookOk: hookOk || null };
 }
 
-module.exports = { saveContacts, afterChange, processQueue, failedAction, adminData, handleReports };
+module.exports = { saveContacts, afterChange, processQueue, failedAction, adminData, handleReports, events };

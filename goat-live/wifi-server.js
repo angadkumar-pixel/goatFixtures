@@ -61,6 +61,8 @@ function queueMessages(prev, next, contactsBefore) {
     processQueue();
   } catch (e) { console.error('whatsapp', e); }
 }
+const pops = []; // recent pop-ups for the Control Room
+function popUp(d, status) { pops.push(notify.pop(d, status)); if (pops.length > 200) pops.shift(); }
 let sending = false;
 async function processQueue() { // new messages + retries; also runs every 10 s
   if (sending || !Object.keys(outbox.queue).length) return;
@@ -69,6 +71,7 @@ async function processQueue() { // new messages + retries; also runs every 10 s
     const done = await notify.processDue(Object.values(outbox.queue), core.normalize(JSON.parse(JSON.stringify(state))));
     for (const d of done) {
       outbox.log[logKey(d)] = d;
+      if (d.status === 'sent') popUp(d, 'sent'); else if (d.status === 'failed') popUp(d, 'call'); else if (d.status === 'pending' && d.attempts === 1) popUp(d, 'retry');
       if (d.status === 'pending') outbox.queue[d.id] = d;
       else { delete outbox.queue[d.id]; if (d.status === 'failed') outbox.failed[d.id] = d; }
     }
@@ -103,7 +106,10 @@ function dispatch(act) {
 core.normalize(state); save();
 
 // countdowns that reach 0 start by themselves; tentative times follow the clock
-setInterval(() => { if (core.autoStart(state)) { core.normalize(state); state.rev++; save(); broadcast(); } }, 1000);
+setInterval(() => {
+  const prev = core.normalize(JSON.parse(JSON.stringify(state)));
+  if (core.autoStart(state)) { core.normalize(state); state.rev++; save(); broadcast(); queueMessages(prev, state, contactsOf()); } // automatic changes message players too
+}, 1000);
 setInterval(() => {
   const sig = () => state.matches.map((m) => m.time).join(',');
   const before = sig();
@@ -189,6 +195,11 @@ http.createServer(async (req, res) => {
       if (!admin) return send(res, 401, { error: 'Not logged in' });
       const b = await readJson(req);
       return send(res, 200, await notify.testSend(b.phone, ['soon', 'next', 'later'].includes(b.kind) ? b.kind : 'next'));
+    }
+    if (p === '/api/wa-events') {
+      if (!admin) return send(res, 401, { error: 'Not logged in' });
+      const since = Number(new URL(req.url, 'http://x').searchParams.get('since')) || Date.now();
+      return send(res, 200, { now: Date.now(), events: pops.filter((e) => e.at > since), ver: '' });
     }
     if (p === '/api/admin-data') {
       if (!admin) return send(res, 401, { error: 'Not logged in' });

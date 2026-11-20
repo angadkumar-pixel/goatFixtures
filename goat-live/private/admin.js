@@ -26,9 +26,9 @@
       return j;
     } catch { toast('Cannot reach the server', { error: true }); return null; }
   }
-  function toast(msg, { error = false, action = null, ms = 4500 } = {}) {
+  function toast(msg, { error = false, action = null, ms = 4500, kind = '' } = {}) {
     const t = document.createElement('div');
-    t.className = 'toast' + (error ? ' error' : '');
+    t.className = 'toast' + (error ? ' error' : '') + (kind ? ' ' + kind : '');
     t.innerHTML = `<span>${esc(msg)}</span>`;
     if (action) { const b = document.createElement('button'); b.textContent = action.label; b.onclick = () => { action.fn(); t.remove(); }; t.append(b); }
     $('#toasts').append(t);
@@ -309,7 +309,7 @@
         const r = await fetch('/api/admin-data', { cache: 'no-store' });
         if (!r.ok) return;
         const j = await r.json();
-        contacts = j.contacts || {}; wa = j.whatsapp || wa; waLog = j.log || []; waFailed = j.failed || []; waPending = j.pending || 0; waHook = { url: j.webhookUrl || '', last: j.lastReport || null, info: j.hook || null };
+        contacts = j.contacts || {}; wa = j.whatsapp || wa; waLog = j.log || []; waFailed = j.failed || []; waPending = j.pending || 0; waHook = { url: j.webhookUrl || '', last: j.lastReport || null, info: j.hook || null, ok: j.hookOk || null };
         renderWA();
       } catch {}
     }, delay);
@@ -324,10 +324,13 @@
       $('#waHookUrl').textContent = waHook.url;
       const mins = waHook.last ? Math.round((Date.now() - waHook.last) / 60000) : null;
       const h = waHook.info || {}, ago = mins < 1 ? 'just now' : mins + ' min ago';
-      $('#waHookState').innerHTML = !waHook.last ? '<span class="off">not connected yet</span>'
-        : !h.reports ? `<span class="off">a report arrived ${ago} but could not be read (see raw below)</span>`
-        : `<span class="on">connected · last report ${ago}${h.matched ? '' : ' (not matched to a message)'}</span>`;
-      $('#waHookRaw').hidden = !waHook.info;
+      const working = !!waHook.ok; // at least one report has been matched to a message we sent
+      $('#waHookState').innerHTML = working ? '<span class="on">✓ working — you get a pop-up for every delivered or failed message</span>'
+        : !waHook.last ? '<span class="off">not connected yet</span>'
+        : !h.reports ? `<span class="off">a report arrived ${ago} but could not be read</span>`
+        : `<span class="off">reports arriving (${ago}) but not matched to a message yet — send a test</span>`;
+      $('#waHookSetup').hidden = working;
+      $('#waHookRaw').hidden = !waHook.info || working;
       if (waHook.info) { let s = h.sample || ''; try { s = JSON.stringify(JSON.parse(s), null, 1); } catch {} $('#waHookSample').textContent = (h.method || 'POST') + '  ' + s; }
     }
     // players we couldn't reach after 10 tries → call them
@@ -374,6 +377,38 @@
     refreshAdminData();
   });
   refreshAdminData();
+
+  // ── pop-ups: delivered / not delivered / call them (checked every 4 s) + reload after an update ──
+  let popSince = Date.now(), appVer = null;
+  const kindLabel = { soon: 'Coming up', next: "You're next", later: 'Moved later' };
+  async function checkPops() {
+    try {
+      const r = await fetch('/api/wa-events?since=' + popSince, { cache: 'no-store' });
+      if (r.status === 401) return;
+      const j = await r.json();
+      if (j.ver) {
+        if (appVer === null) appVer = j.ver;
+        else if (j.ver !== appVer && !sheet.open && !document.querySelector('dialog[open]')) { toast('Control Room updated — reloading…'); setTimeout(() => location.reload(), 1200); return; }
+      }
+      const ev = j.events || [];
+      if (!ev.length) return;
+      popSince = Math.max(popSince, ...ev.map((e) => e.at));
+      const who = (e) => e.name || e.to;
+      const group = (list, icon, word, kind) => {
+        if (!list.length) return;
+        const names = list.map(who);
+        const label = list.length === 1 ? ` (${kindLabel[list[0].kind] || ''})` : '';
+        toast(`${icon} ${word} ${names.slice(0, 3).join(', ')}${names.length > 3 ? ' +' + (names.length - 3) + ' more' : ''}${label}`, { kind, ms: 5000 });
+      };
+      group(ev.filter((e) => e.status === 'sent'), '✓', 'Sent to', 'good');
+      group(ev.filter((e) => e.status === 'delivered'), '✓', 'Delivered to', 'good');
+      ev.filter((e) => e.status === 'retry').forEach((e) => toast(`⚠ Not delivered to ${who(e)} (${kindLabel[e.kind] || ''}) — trying again automatically`, { error: true, ms: 7000 }));
+      ev.filter((e) => e.status === 'call').forEach((e) => toast(`📞 Couldn't reach ${who(e)} ${e.to} — please call them`, { kind: 'call', ms: 15000 }));
+      refreshAdminData(300);
+    } catch {}
+  }
+  setInterval(checkPops, 4000);
+
   // Keep WhatsApp deliveries moving: sends due messages and retries failed ones (online there is no background timer,
   // so the open Control Room does this every 20 s). Also refreshes the panel.
   setInterval(async () => {

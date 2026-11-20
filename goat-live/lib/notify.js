@@ -61,8 +61,9 @@ function detect(prev, next, sent) {
     const s = sent[m.id] || {};
     const toldNext = !!s.next && !(s.later && s.later >= s.next); // a "you're next" is currently standing
     const p = before.get(m.id), startedNow = m.status === 'live' && p && p.status === 'queued'; // started straight from the queue just now
-    if ((m.status === 'called' || startedNow) && !toldNext) events.push({ kind: 'next', m });
-    else if (m.status === 'queued' && toldNext) events.push({ kind: 'later', m });
+    const beReady = m.status === 'queued' && !!m.ready; // the court's match is finishing → "BE READY · COURT N" (automatic)
+    if ((m.status === 'called' || startedNow || beReady) && !toldNext) events.push({ kind: 'next', m });
+    else if (m.status === 'queued' && !m.ready && toldNext) events.push({ kind: 'later', m });
     else if (m.status === 'queued' && i < BOARD && !s.soon && !s.next) events.push({ kind: 'soon', m });
   });
   return events;
@@ -70,7 +71,7 @@ function detect(prev, next, sent) {
 
 function params(kind, m, side) {
   const me = side === 'a' ? m.a : m.b, them = side === 'a' ? m.b : m.a;
-  return kind === 'next' ? [me, them, String(m.court || '-')] : [me, them];
+  return kind === 'next' ? [me, them, String(m.court || m.readyCourt || '-')] : [me, them];
 }
 const PREVIEW = {
   soon: (p) => `Hi ${p[0]}, your match vs ${p[1]} at THE GOAT Badminton Tournament is expected to start in about 30 minutes . Please be at the venue and ready.`,
@@ -271,6 +272,11 @@ function checkUnconfirmed(watch, st, now = Date.now()) {
   return out;
 }
 
+// A pop-up for the Control Room: delivered / sent / retry (failed, trying again) / call (gave up → phone them).
+function pop(d, status) {
+  return { at: Date.now(), status, name: d.name || '', to: d.to || '', kind: d.kind || '', match: d.match || '', why: d.lastError || '' };
+}
+
 // One real message to check the setup (Control Room → WhatsApp → Send test).
 async function testSend(phone, kind = 'next') {
   const to = normPhone(phone);
@@ -281,4 +287,4 @@ async function testSend(phone, kind = 'next') {
   return Object.assign({ to: '+' + to, text: PREVIEW[kind](p) }, r);
 }
 
-module.exports = { plan, followUps, processDue, stillRelevant, detect, normPhone, status, configured, PREVIEW, testSend, MAX_ATTEMPTS, parseReports, applyReports, checkUnconfirmed };
+module.exports = { plan, followUps, processDue, stillRelevant, detect, normPhone, status, configured, PREVIEW, testSend, MAX_ATTEMPTS, parseReports, applyReports, checkUnconfirmed, pop };
