@@ -8,28 +8,61 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   const isActive = (m) => m.status === 'live' || m.status === 'called';
 
-  // Each court is busy for matchMinutes from when its match started (or is called to start).
-  // Waiting matches, in order, take whichever court frees up first, plus any delay the admin added.
+  // Court names, e.g. "1, 2, 3, 5" (settings.courtNames); otherwise 1…courts.
+  function courtList(s) {
+    const raw = String((s && s.courtNames) || '').split(/[,s]+/).map((x) => x.trim()).filter(Boolean);
+    if (raw.length) return raw.slice(0, 20);
+    return Array.from({ length: Number(s && s.courts) || 4 }, (_, i) => String(i + 1));
+  }
+  const pname = (n) => String(n || '').toLowerCase().replace(/[^a-z0-9]+/g, ''); // 'Aarav  Shah' = 'aarav shah'
+  const known = (m) => !!(m.a && m.b); // both players known (a knockout match waits for its "Winner of #n")
+
+  // Tentative times, by playing the rest of the day through:
+  //  • each court is busy for matchMinutes from when its match started (or is called to start)
+  //  • when a court frees up it takes the first waiting match (in the Control Room's order) that can be played then:
+  //    both players known — or their earlier match will be over — and each player has had restMinutes off
+  //  • plus any delay the admin added. A match whose players can't be worked out yet gets no time (TBA).
   function normalize(st, now) {
     now = now || Date.now();
-    const s = st.settings || {}, D = (Number(s.matchMinutes) || 15) * 60000, n = s.courts || 4;
-    const free = Array.from({ length: n }, () => now);
+    const s = st.settings || {}, D = (Number(s.matchMinutes) || 15) * 60000, REST = (s.restMinutes == null ? 15 : Number(s.restMinutes) || 0) * 60000;
+    const courts = courtList(s), free = courts.map(() => now);
     const earliest = () => free.indexOf(Math.min(...free));
+    const endOf = {}, pFree = {};
+    const pk = (m, side) => pname(m[side]); // same kid in two categories (U13 + U15) = one person: never two matches at once
+    const busyTill = (m, t) => ['a', 'b'].forEach((sd) => { if (m[sd]) { const k = pk(m, sd); pFree[k] = Math.max(pFree[k] || 0, t + REST); } });
+    (st.done || []).forEach((m) => { endOf[m.id] = m.endedAt || 0; busyTill(m, m.endedAt || 0); });
     st.matches.forEach((m) => {
       if (!isActive(m)) return;
       const end = m.status === 'live' ? Math.max(now, (m.startedAt || now) + D) : Math.max(now, m.callAt) + D;
-      const k = +m.court >= 1 && +m.court <= n ? +m.court - 1 : earliest();
+      let k = courts.indexOf(String(m.court)); if (k < 0) k = earliest();
       free[k] = Math.max(free[k], end);
+      endOf[m.id] = end; busyTill(m, end);
       m.time = m.status === 'live' ? m.startedAt : m.callAt;
     });
-    st.matches.forEach((m) => {
-      if (m.status !== 'queued') return;
-      const k = earliest();
-      const t = Math.max(now, free[k]) + (Number(m.delay) || 0) * 60000;
-      m.time = Math.ceil(t / 60000) * 60000;
-      m.timeLocked = false;
-      free[k] = t + D;
-    });
+    const feed = {}; st.matches.forEach((m) => { if (m.nx) (feed[m.nx] = feed[m.nx] || []).push(m); });
+    const readyAt = (m) => {
+      let t = now;
+      ['a', 'b'].forEach((sd) => { if (m[sd]) t = Math.max(t, pFree[pk(m, sd)] || 0); });
+      (feed[m.id] || []).forEach((f) => { if (!m[f.ns || 'a']) t = Math.max(t, endOf[f.id] == null ? Infinity : endOf[f.id] + REST); });
+      if (!known(m) && !(feed[m.id] || []).length && !(m.xa || m.xb)) t = Infinity; // nobody can fill it in
+      return t;
+    };
+    const waiting = st.matches.filter((m) => m.status === 'queued'), left = new Set(waiting);
+    waiting.forEach((m) => { m.time = null; m.timeLocked = false; });
+    while (left.size) {
+      const k = earliest(), T = free[k];
+      let pick = null, at = Infinity;
+      for (const m of waiting) {
+        if (!left.has(m)) continue;
+        const r = readyAt(m) + (Number(m.delay) || 0) * 60000;
+        if (r <= T) { pick = m; at = T; break; }
+        if (r < at) { pick = m; at = r; }
+      }
+      if (!pick || at === Infinity) break;
+      left.delete(pick);
+      pick.time = Math.ceil(at / 60000) * 60000;
+      endOf[pick.id] = at + D; free[k] = at + D; busyTill(pick, at + D);
+    }
     if (st.done && st.done.length > 300) st.done.length = 300;
     return st;
   }
@@ -38,7 +71,7 @@
   //                      goat/matches/<id> {…, pos}   goat/done/<id>
   // Play order = matches sorted by `pos`. Moving a match changes only that match's pos, so a reorder
   // sends one small record instead of the whole order list.
-  const SKIP = { id: 1, time: 1, timeLocked: 1, shownAt: 1, pos: 1, contact: 1 }; // contact = phone numbers, kept private
+  const SKIP = { id: 1, time: 1, timeLocked: 1, shownAt: 1, pos: 1, contact: 1, carry: 1 }; // contact = phone numbers, kept private
   function strip(m) {
     const o = {};
     Object.keys(m).sort().forEach((k) => { if (!SKIP[k] && m[k] !== null && m[k] !== undefined) o[k] = m[k]; });
@@ -119,5 +152,5 @@
     }
     return p;
   }
-  return { normalize, toTree, toState, diff, stable };
+  return { normalize, toTree, toState, diff, stable, courtList, known, pname };
 });

@@ -164,6 +164,11 @@ html.lite .heading, html.lite .chrome, html.lite .clock, html.lite .chip, html.l
 html.lite .row.live .plate::before, html.lite .row.live .vs::after, html.lite .status .dot::after, html.lite .chip .dot::after, html.lite .row.called .chip::after { animation: none; }
 html.lite .vs, html.lite .clock, html.lite .big { text-shadow: none; }
 html.lite .ring, html.lite .blink, html.lite .chip { box-shadow: none; }
+/* TV mode: nothing runs forever except the two "look here" blinks (opacity only); no light beams, no glow */
+html.lite .beams, html.lite .spot, html.lite .sweep, html.lite .panel-glow { display: none; }
+html.lite .row.called .chip::after, html.lite .plate::before { display: none; }
+html.lite .row.ending .chip, html.lite .row.ready .chip { animation: none; }
+html.lite .row { transition-duration: 0.6s; }
 
 @media (prefers-reduced-motion: reduce) {
   .row.live .plate::before, .row.live .vs::after, .status .dot::after, .chip .dot::after, .row.called .chip::after,
@@ -174,3 +179,8 @@ html.lite .ring, html.lite .blink, html.lite .chip { box-shadow: none; }
 .row.won-a .plate.a .tint, .row.won-b .plate.b .tint { opacity: 1; background: linear-gradient(180deg, #ffe066 0%, #fcc500 55%, #d9a400 100%); }
 .row.won-a .plate.a .name, .row.won-b .plate.b .name { color: var(--ink); }
 .row.finished .chip { background: var(--gold); color: var(--ink); }
+
+/* category · round label on each match, and "Winner of #5" while a player isn't known yet */
+.tag { position: absolute; left: 6px; top: 2px; height: 26px; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: 600 19px/26px 'Barlow Condensed', sans-serif; letter-spacing: 1px; text-transform: uppercase; color: var(--gold); }
+.name.tbd { opacity: 0.6; letter-spacing: 0.5px; }

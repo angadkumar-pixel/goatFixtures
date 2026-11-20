@@ -14,7 +14,8 @@
   const PREVIEW = new URLSearchParams(location.search).has('preview');
   const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const skipMotion = () => document.hidden || REDUCED;
-  // Lite mode for smart TVs and slow devices: keeps the camera zoom and slam, drops beams/glows/spotlight.
+  // TV mode ("lite") for smart TVs and slow devices: no camera zoom at all (zooming the whole board is what TVs
+  // can't do smoothly). Cards simply fade/slide in, changes swap in place. Phones and laptops keep the full show.
   // Force with ?lite=1, turn off with ?lite=0. Also switches on by itself if the screen cannot keep up.
   const QS = new URLSearchParams(location.search);
   const TV_UA = /SmartTV|SMART-TV|Tizen|Web0S|WebOS|NetCast|BRAVIA|HbbTV|AFT[A-Z]|CrKey|GoogleTV|Android ?TV|VIDAA|Hisense|PhilipsTV|Roku|\bTV\b/i.test(navigator.userAgent);
@@ -22,6 +23,14 @@
   document.documentElement.classList.toggle('lite', !!LITE);
   const setLite = (on) => { LITE = !!on; document.documentElement.classList.toggle('lite', LITE); if (L) { L.dive = LITE ? Math.min(L.dive, 1.6) : L.dive; L.focus = LITE ? Math.min(L.focus, 1.4) : L.focus; } };
   // wait for an animation to end (works on older browsers without Animation.finished)
+  const RN = { R1: 'Round 1', R64: 'Round of 64', R32: 'Round of 32', R16: 'Pre-Quarter', QF: 'Quarter Final', SF: 'Semi Final', F: 'FINAL' };
+  // On the board: matches on court first, then the rest in the order they're expected to start.
+  function boardOrder(s) {
+    const on = s.matches.filter((m) => m.status === 'live' || m.status === 'called');
+    const wait = s.matches.filter((m) => m.status !== 'live' && m.status !== 'called').map((m, i) => [m, i])
+      .sort((x, y) => (x[0].time || Infinity) - (y[0].time || Infinity) || x[1] - y[1]).map((x) => x[0]);
+    return on.concat(wait);
+  }
   const fin = (a) => (a.finished ? a.finished.catch(() => {}) : new Promise((res) => { a.onfinish = res; a.oncancel = res; }));
 
   const vp = $('viewport'), stage = $('stage'), camEl = $('cam'), rowsEl = $('rows'), bgDark = $('bgDark'), beamsEl = $('beams'),
@@ -143,10 +152,10 @@
     el.className = 'row';
     el.innerHTML = '<div class="card"><div class="blink"></div><div class="plate a"><i class="tint"></i><span class="name"></span></div>' +
       '<div class="plate b"><i class="tint"></i><span class="name"></span></div><div class="vs">V</div><div class="chip"></div>' +
-      '<div class="note">Your match is about to start</div><div class="cdbar"><i></i></div><div class="flash"></div><div class="ring"></div></div>';
+      '<div class="tag"></div><div class="note">Your match is about to start</div><div class="cdbar"><i></i></div><div class="flash"></div><div class="ring"></div></div>';
     const q = (s) => el.querySelector(s);
     const r = { el, m: null, slot: -1, chipKey: '', seenReady: 0, card: q('.card'), pa: q('.plate.a'), pb: q('.plate.b'), na: q('.a .name'), nb: q('.b .name'),
-      vs: q('.vs'), chip: q('.chip'), bar: q('.cdbar i'), flash: q('.flash'), ring: q('.ring') };
+      vs: q('.vs'), tag: q('.tag'), chip: q('.chip'), bar: q('.cdbar i'), flash: q('.flash'), ring: q('.ring') };
     rowsEl.append(el);
     rows.set(m.id, r);
     paintRow(r, m, false);
@@ -174,6 +183,7 @@
     if (m.status === 'live') return m.ending ? `FINISHING${ct}` : `<span class="dot"></span>LIVE${ct}`;
     if (m.status === 'called') return `COURT ${esc(m.court)} · <span class="cd-label">STARTS IN</span> <span class="cd">${fmtLeft(m.callAt)}</span>`;
     if (m.ready) return `BE READY${m.readyCourt ? ' · COURT ' + esc(m.readyCourt) : ''}`;
+    if (!m.time) return 'TO BE DECIDED';
     return `<span class="est">EST</span>${esc(GoatLive.fmtTime(m.time))}`; // tentative time
   }
   const chipSig = (m) => chipHTML(m).replace(/<span class="cd">[^<]*/, '') + '|' + (m.callAt || '');
@@ -192,7 +202,7 @@
   setInterval(tickCountdowns, 250);
 
   function flipChip(r) { // split-flap style flip; always lands on the latest text
-    if (skipMotion()) { r.chip.innerHTML = r.chipHTML; return; }
+    if (skipMotion() || LITE) { r.chip.innerHTML = r.chipHTML; return; }
     const P = 'perspective(400px) ';
     const a = r.chip.animate([{ transform: P + 'rotateX(0deg)' }, { transform: P + 'rotateX(-90deg)' }], { duration: 160, easing: 'ease-in', fill: 'forwards' });
     a.onfinish = () => {
@@ -203,14 +213,17 @@
   }
   function burst(r) {
     if (skipMotion()) return;
+    if (LITE) { r.flash.animate([{ opacity: 0 }, { opacity: 0.7 }, { opacity: 0 }], { duration: 700 }); return; }
     r.flash.animate([{ opacity: 0 }, { opacity: 0.85 }, { opacity: 0 }], { duration: 600 });
     r.ring.animate([{ opacity: 1, transform: 'scale(.3)' }, { opacity: 0, transform: 'scale(3.2)' }], { duration: 800, easing: 'cubic-bezier(.22,1,.36,1)' });
     r.card.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.06)' }, { transform: 'scale(1)' }], { duration: 500, easing: 'cubic-bezier(.2,1.4,.4,1)' });
   }
   function paintRow(r, m, animate = true) {
     if (animate && r.m && r.m.status !== 'live' && m.status === 'live') burst(r);
-    if (!r.m || r.m.a !== m.a) { r.na.textContent = m.a || 'TBA'; fitName(r.na); }
-    if (!r.m || r.m.b !== m.b) { r.nb.textContent = m.b || 'TBA'; fitName(r.nb); }
+    if (!r.m || r.m.a !== m.a || r.m.pa !== m.pa) { r.na.textContent = m.a || m.pa || 'TBA'; r.na.classList.toggle('tbd', !m.a); fitName(r.na); }
+    if (!r.m || r.m.b !== m.b || r.m.pb !== m.pb) { r.nb.textContent = m.b || m.pb || 'TBA'; r.nb.classList.toggle('tbd', !m.b); fitName(r.nb); }
+    const tg = m.cat ? `${m.cat} · ${RN[m.rd] || m.rd} · #${m.no}` : '';
+    if (r.tag.textContent !== tg) { r.tag.textContent = tg; r.tag.style.display = tg ? '' : 'none'; }
     r.el.classList.toggle('live', m.status === 'live');
     r.el.classList.toggle('ending', m.status === 'live' && !!m.ending);
     r.el.classList.toggle('called', m.status === 'called');
@@ -254,6 +267,7 @@
   async function slam(r) {
     r.card.style.opacity = '';
     if (skipMotion()) return;
+    if (LITE) { await fin(r.card.animate([{ opacity: 0, transform: 'translateY(24px)' }, { opacity: 1, transform: 'translateY(0)' }], { duration: 450, easing: OUT })); return; }
     const A = [];
     slamKeys(A, r, 0, 0.95);
     startTogether(A);
@@ -272,6 +286,7 @@
       r.chipHTML = w ? '🏆 ' + esc(w) + ' WINS' : 'FINISHED'; r.chipKey = r.chipHTML;
       flipChip(r);
       await sleep(w ? 2200 : 650); // let everyone read the winner
+      if (LITE) { await fin(r.card.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 450, fill: 'forwards' })); r.el.remove(); return; }
       r.flash.animate([{ opacity: 0 }, { opacity: 0.9 }, { opacity: 0 }], { duration: 520 });
       r.ring.animate([{ opacity: 1, transform: 'scale(.3)' }, { opacity: 0, transform: 'scale(3.2)' }], { duration: 700, easing: 'cubic-bezier(.22,1,.36,1)' });
       await fin(r.card.animate([{ transform: 'scale(1)', opacity: 1 }, { transform: 'scale(1.05)', opacity: 1, offset: 0.3 }, { transform: 'scale(0.6)', opacity: 0 }],
@@ -300,7 +315,7 @@
 
   // Diff the board against the new state: finished matches leave, the rest glide up, newcomers zoom in.
   async function reconcile(s) {
-    const vis = s.matches.slice(0, SLOTS);
+    const vis = boardOrder(s).slice(0, SLOTS);
     const ids = new Set(vis.map((m) => m.id));
     const doneById = new Map((s.done || []).map((d) => [d.id, d]));
     vis.forEach((m) => { const r = rows.get(m.id); if (r) paintRow(r, m); });
@@ -314,7 +329,7 @@
 
     const rs = vis.map((m, i) => [m, i]).filter(([m]) => !rows.has(m.id))
       .map(([m, i]) => { const r = buildRow(m); place(r, i, false); r.card.style.opacity = 0; return r; });
-    const camOk = !PREVIEW && !skipMotion();
+    const camOk = !PREVIEW && !skipMotion() && !LITE; // TV mode: never zoom
     let zoomed = false;
     if (rs.length && rs.length <= 3 && camOk) {
       for (const r of rs) await focusOn(r, 1100, () => slam(r));
@@ -326,7 +341,7 @@
     const fresh = [...rows.values()].filter((r) => r.m.ready && r.m.readyAt && r.m.readyAt !== r.seenReady);
     for (const r of fresh) {
       r.seenReady = r.m.readyAt;
-      if (camOk) { await focusOn(r, 2200, async () => burst(r)); zoomed = true; }
+      if (camOk) { await focusOn(r, 2200, async () => burst(r)); zoomed = true; } else burst(r);
     }
     if (zoomed) await camTo(FULL, 900);
   }
@@ -346,9 +361,10 @@
     mode = 'intro';
     lastIntroAt = Date.now();
     rows.forEach((r) => r.el.remove()); rows.clear();
-    const rs = latest.matches.slice(0, SLOTS).map((m, i) => { const r = buildRow(m); place(r, i, false); r.card.style.opacity = 0; return r; });
+    const rs = boardOrder(latest).slice(0, SLOTS).map((m, i) => { const r = buildRow(m); place(r, i, false); r.card.style.opacity = 0; return r; });
     fitAll(rs);
     if (skipMotion()) { setFinal(); return; }
+    if (LITE) return playIntroTV(rs);
     // let the browser lay out and paint the new rows (screen is still dark) before the clock starts
     await frame(); await frame();
     const slot = 1.1, C = { Lights: 1, Matches: 3.6 };
@@ -424,6 +440,33 @@
     });
   }
 
+  // TV intro: no camera, no beams, no outline trace — the board fades up, the heading drops in, the matches slide in
+  // one after another. Only opacity + small moves of single cards, so even a weak TV stays smooth from the first frame.
+  async function playIntroTV(rs) {
+    Object.assign(cam, FULL); applyCam();
+    beamsEl.style.opacity = 0; glow.style.opacity = 0; traceBox.style.opacity = 1;
+    // Draw everything once, almost invisible, while the screen is still dark — a TV's first paint of the board is the
+    // slow part, so it happens here instead of in the middle of the fade.
+    const warm = [panel, heading, chrome, traceBox].concat(rs.map((r) => r.card));
+    warm.forEach((el) => { el.style.opacity = 0.01; });
+    bgDark.style.opacity = 1;
+    await frame(); await frame(); await frame();
+    const A = (introAnims = []), total = 1.6 + rs.length * 0.14 + 0.6;
+    const K = (el, pts) => keys(A, el, pts, total);
+    K(bgDark, [{ t: 0, v: { opacity: 1 } }, { t: 0.2, v: { opacity: 1 }, e: EIO }, { t: 1.0, v: { opacity: 0 } }]);
+    K(panel, [{ t: 0, v: { opacity: 0 } }, { t: 0.2, v: { opacity: 0 }, e: OUT3 }, { t: 0.9, v: { opacity: 1 } }]);
+    K(traceBox, [{ t: 0, v: { opacity: 0 } }, { t: 0.4, v: { opacity: 0 } }, { t: 1.0, v: { opacity: 1 } }]);
+    K(heading, [{ t: 0, v: { opacity: 0, transform: 'translateY(-30px)' } }, { t: 0.5, v: { opacity: 0, transform: 'translateY(-30px)' }, e: OUT }, { t: 1.1, v: { opacity: 1, transform: 'translateY(0)' } }]);
+    K(chrome, [{ t: 0, v: { opacity: 0 } }, { t: 0.8, v: { opacity: 0 } }, { t: 1.4, v: { opacity: 1 } }]);
+    rs.forEach((r, i) => { const t0 = 1.0 + i * 0.14; K(r.card, [{ t: 0, v: { opacity: 0, transform: 'translateY(26px)' } }, { t: t0, v: { opacity: 0, transform: 'translateY(26px)' }, e: OUT }, { t: t0 + 0.5, v: { opacity: 1, transform: 'translateY(0)' } }]); });
+    startTogether(A);
+    return new Promise((res) => {
+      let t;
+      introDone = () => { clearTimeout(t); introDone = null; setFinal(); endAll(A); introAnims = []; res(); };
+      t = setTimeout(() => introDone && introDone(), total * 1000 + 50);
+    });
+  }
+
   // ── controller: serialises animations, coalesces bursts of admin changes ──
   let mode = 'boot', latest = null, lastNonce = null, lastIntroAt = 0, busy = false, pending = false, replayWanted = false;
   async function pump() {
@@ -451,7 +494,7 @@
     $('liveCount').textContent = s.matches.filter((m) => m.status === 'live').length;
     const deck = s.matches.filter((m) => m.status === 'called').length;
     $('deck').textContent = deck ? `${deck} ON DECK` : '';
-    const extra = s.matches.length - SLOTS;
+    const extra = s.matches.length - SLOTS; // (in the order they're expected)
     moreEl.textContent = extra > 0 ? `+${extra} more match${extra > 1 ? 'es' : ''} in queue` : s.matches.length ? '' : 'Fixtures coming up shortly';
   }
 

@@ -59,17 +59,22 @@ function normPhone(p) {
 }
 
 // Which messages are due, comparing before → after. `sent[matchId]` = {soon, next, later} timestamps.
-function detect(prev, next, sent) {
+// "Coming up" goes when the match is expected within SOON_MIN minutes (or is in the board's top 10 without a time).
+// Knockout matches whose players aren't known yet get nothing until they are.
+const SOON_MIN = 35;
+const soonDue = (m, i, now) => (m.time ? m.time - now <= SOON_MIN * 60000 : i < BOARD);
+function detect(prev, next, sent, now = Date.now()) {
   const before = new Map((prev ? prev.matches : []).map((m) => [m.id, m]));
   const events = [];
   next.matches.forEach((m, i) => {
+    if (!m.a || !m.b) return;
     const s = sent[m.id] || {};
     const toldNext = !!s.next && !(s.later && s.later >= s.next); // a "you're next" is currently standing
     const p = before.get(m.id), startedNow = m.status === 'live' && p && p.status === 'queued'; // started straight from the queue just now
     const beReady = m.status === 'queued' && !!m.ready; // the court's match is finishing → "BE READY · COURT N" (automatic)
     if ((m.status === 'called' || startedNow || beReady) && !toldNext) events.push({ kind: 'next', m });
     else if (m.status === 'queued' && !m.ready && toldNext) events.push({ kind: 'later', m });
-    else if (m.status === 'queued' && i < BOARD && !s.soon && !s.next) events.push({ kind: 'soon', m });
+    else if (m.status === 'queued' && soonDue(m, i, now) && !s.soon && !s.next) events.push({ kind: 'soon', m });
   });
   return events;
 }
@@ -96,7 +101,7 @@ function makeDelivery(m, kind, side, round, contacts) {
 // Plan the messages for a change. Returns the "sent" flags to save and the deliveries to queue.
 function plan(prev, next, { contacts, sent }, now = Date.now()) {
   const sentPatch = {}, deliveries = [];
-  for (const { kind, m } of detect(prev, next, sent)) {
+  for (const { kind, m } of detect(prev, next, sent, now)) {
     sentPatch[m.id] = Object.assign({}, sent[m.id] || {}, sentPatch[m.id] || {}, { [kind]: now });
     for (const side of ['a', 'b']) deliveries.push(makeDelivery(m, kind, side, now, contacts));
   }
@@ -107,13 +112,14 @@ function plan(prev, next, { contacts, sent }, now = Date.now()) {
 function followUps(st, sent, before, after) {
   const out = [];
   st.matches.forEach((m, i) => {
+    if (!m.a || !m.b) return;
     const o = before[m.id] || {}, n = after[m.id];
     if (!n) return;
     const s = sent[m.id] || {}, toldNext = !!s.next && !(s.later && s.later >= s.next);
     for (const side of ['a', 'b']) {
       if (!normPhone(n[side]) || normPhone(n[side]) === normPhone(o[side])) continue; // no new number for this side
       if (m.status === 'called' && toldNext) out.push(makeDelivery(m, 'next', side, s.next, after));
-      else if (m.status === 'queued' && i < BOARD && s.soon && !s.next) out.push(makeDelivery(m, 'soon', side, s.soon, after));
+      else if (m.status === 'queued' && s.soon && !s.next) out.push(makeDelivery(m, 'soon', side, s.soon, after));
     }
   });
   return out;

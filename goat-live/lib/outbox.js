@@ -19,6 +19,13 @@ async function saveContacts(st) {
   const patch = {};
   st.matches.concat(st.done).forEach((m) => { if (m.contact) patch[m.id] = m.contact; });
   const before = (await fire.get('goat_private/contacts')) || {};
+  st.matches.forEach((m) => { // knockout: the winner's number moves on with them into the next round
+    if (!m.carry) return;
+    Object.keys(m.carry).forEach((side) => {
+      const c = m.carry[side], phone = ((before[c.from] || patch[c.from] || {})[c.side]) || '';
+      patch[m.id] = Object.assign({ a: '', b: '' }, before[m.id] || {}, patch[m.id] || {}, { [side]: phone });
+    });
+  });
   if (Object.keys(patch).length) await fire.patch('goat_private/contacts', patch);
   return { before, after: Object.assign({}, before, patch), changed: Object.keys(patch).length > 0 };
 }

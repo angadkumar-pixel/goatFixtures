@@ -10,6 +10,8 @@
   var ua = navigator.userAgent || '';
   var tv = /SmartTV|SMART-TV|Tizen|Web0S|WebOS|NetCast|BRAVIA|HbbTV|AFT[A-Z]|CrKey|GoogleTV|Android ?TV|AndroidTV|VIDAA|Hisense|PhilipsTV|Roku|Opera TV|OMI\/|Viera|AQUOS|SonyCEBrowser|\bTV\b|; ?wv\).*Large Screen/i.test(ua);
   var weak = (navigator.deviceMemory && navigator.deviceMemory <= 2) || (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 2);
+  try { if (!tv && window.matchMedia && matchMedia('(hover: none)').matches && Math.max(screen.width, screen.height) >= 1280 && !matchMedia('(pointer: coarse)').matches) tv = true; } catch (e) {} // big screen, no mouse, no touch = a TV
+  if (/[?&]tv=1\b/.test(q)) { saved = '1'; try { localStorage.setItem('goat-lite', '1'); } catch (e) {} }
   var lite = saved === '1' || (saved !== '0' && (tv || weak));
   window.GOAT_LITE = lite;
   window.GOAT_LITE_LOCKED = saved === '1' || saved === '0';

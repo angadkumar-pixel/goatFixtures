@@ -193,3 +193,22 @@ button.small { padding: 6px 10px; font-size: 13px; color: var(--mute); }
   .two { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) { .m.ending, .m.ready .b, .court.ending { animation: none; } }
+
+/* knockout draws */
+.tag { display: inline-block; margin-right: 6px; padding: 1px 6px; border-radius: 6px; background: rgba(252,197,0,.16); color: #fcc500; font: 600 11px/1.5 Inter, system-ui, sans-serif; letter-spacing: .02em; vertical-align: 1px; white-space: nowrap; }
+em.tbd { font-style: normal; opacity: .55; font-size: .9em; }
+small.wo { color: #ff9b6b; font-weight: 700; }
+.sheet-tag { display: block; font: 600 12px Inter, system-ui, sans-serif; color: #fcc500; margin-bottom: 4px; }
+.wo-btn { flex: 1; padding: 10px; border-radius: 10px; }
+.setbox { margin-top: 10px; }
+.setbox summary { cursor: pointer; padding: 8px 0; }
+#setSum { opacity: .6; font-size: 12px; margin-left: 6px; }
+.setform { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; align-items: end; padding: 8px 0 4px; }
+.setform label { display: grid; gap: 4px; font-size: 12px; opacity: .9; }
+.draw-sum { width: 100%; border-collapse: collapse; font-size: 13px; margin: 6px 0; }
+.draw-sum th, .draw-sum td { padding: 4px 6px; border-bottom: 1px solid rgba(255,255,255,.1); text-align: left; }
+.draw-sum th { opacity: .65; font-weight: 600; }
+.draw-note { font-size: 12px; opacity: .8; }
+.draw-r1 { font-size: 13px; max-height: 220px; overflow: auto; }
+.draw-r1 .bye { list-style: none; opacity: .75; margin-top: 6px; }
+.tpl-link { display: inline-block; margin: 0 0 10px; color: #fcc500; font-size: 13px; }

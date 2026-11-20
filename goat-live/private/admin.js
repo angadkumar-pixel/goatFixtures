@@ -8,11 +8,15 @@
   const N = () => (S && S.boardSize) || 10;
   const find = (id) => S && S.matches.find((m) => m.id === id);
   const idx = (id) => S.matches.findIndex((m) => m.id === id);
-  const courts = () => (S && S.settings && S.settings.courts) || 4;
+  const courts = () => (S ? GoatShared.courtList(S.settings).length : 4);
   const fmtDur = (min) => (min >= 60 ? `${Math.floor(min / 60)}h ${min % 60}m` : `${min}m`);
   const played = (m) => (m.startedAt ? fmtDur(Math.max(0, Math.round((GoatLive.now() - m.startedAt) / 60000))) : '');
   const fmtLeft = (at) => { const s = Math.max(0, Math.ceil((at - GoatLive.now()) / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
-  const vs = (m) => `${esc(m.a || 'TBA')}<i>V</i>${esc(m.b || 'TBA')}`;
+  const side = (m, k) => (m[k] ? esc(m[k]) : `<em class="tbd">${esc(m['p' + k] || 'TBA')}</em>`);
+  const vs = (m) => `${side(m, 'a')}<i>V</i>${side(m, 'b')}`;
+  const RN = (window.GoatDraw && GoatDraw.ROUND_NAME) || {};
+  const tag = (m) => (m.cat ? `<span class="tag">${esc(m.cat)} · ${esc(m.rd === 'R1' ? 'R1' : m.rd)} #${m.no}</span>` : '');
+  const known = (m) => !!(m.a && m.b);
   function toEpoch(hm) { const [h, mi] = hm.split(':').map(Number); const d = new Date(GoatLive.now()); d.setHours(h, mi, 0, 0); return d.getTime(); }
 
   async function act(type, data = {}) {
@@ -53,12 +57,13 @@
     if (m.status === 'live') return `C${esc(m.court || '?')} · ${m.ending ? 'FINISHING' : 'LIVE'}`;
     if (m.status === 'called') return `C${esc(m.court)} · <span class="cd" data-at="${m.callAt}">${fmtLeft(m.callAt)}</span>`;
     if (m.ready) return `READY · C${esc(m.readyCourt || '?')}`;
+    if (!m.time) return 'waiting';
     return `~${GoatLive.fmtTime(m.time)}${m.delay ? ` <small>+${m.delay}′</small>` : ''}`; // tentative
   }
   function rowHTML(m, i) {
     const cls = [m.status, m.status === 'live' && m.ending ? 'ending' : '', m.status === 'queued' && m.ready ? 'ready' : ''].join(' ');
     return `<li class="m ${cls}" data-id="${m.id}" data-i="${i}" tabindex="0"><span class="grip" aria-label="Drag to reorder">⋮⋮</span><span class="no">${i + 1}</span>
-      <span class="who">${vs(m)}</span><span class="b">${badge(m)}</span></li>`;
+      <span class="who">${tag(m)}${vs(m)}</span><span class="b">${badge(m)}</span></li>`;
   }
 
   const active = (m) => m.status === 'live' || m.status === 'called';
@@ -74,7 +79,7 @@
       : '<li class="empty">Queue empty — add below</li>';
     $('#boardCount').textContent = `${S.matches.filter((m) => m.status === 'live').length}/${courts()} courts live`;
     $('#queueCount').textContent = queue.length ? `${queue.length} waiting` : '';
-    const result = (m) => m.winner ? `${m.winner === 'a' ? '<b class="won">🏆 ' + esc(m.a) + '</b>' : esc(m.a)}<i>V</i>${m.winner === 'b' ? '<b class="won">🏆 ' + esc(m.b) + '</b>' : esc(m.b)}` : vs(m);
+    const result = (m) => (m.cat ? tag(m) : '') + (m.wo ? '<small class="wo">W/O</small> ' : '') + (m.winner ? `${m.winner === 'a' ? '<b class="won">🏆 ' + esc(m.a) + '</b>' : esc(m.a)}<i>V</i>${m.winner === 'b' ? '<b class="won">🏆 ' + esc(m.b) + '</b>' : esc(m.b)}` : vs(m));
     $('#doneList').innerHTML = S.done.slice(0, 100).map((m) => `<li><span>${result(m)}</span><button type="button" data-restore="${m.id}">Restore</button></li>`).join('');
     $('#doneCount').textContent = S.done.length;
     $('#undoBtn').disabled = !S.canUndo;
@@ -88,15 +93,15 @@
   function fillSheet(resetForm) {
     const m = find(openId);
     if (!m) { sheet.close(); return; }
-    $('#sheetTitle').innerHTML = vs(m);
+    $('#sheetTitle').innerHTML = (m.cat ? `<small class="sheet-tag">${esc(m.cat)} · ${esc(RN[m.rd] || m.rd)} · Match #${m.no}</small>` : '') + vs(m);
     const pos = idx(m.id) + 1;
     const sub = m.status === 'live' ? `Court ${esc(m.court || '–')} · live for ${played(m) || '0m'}`
       : m.status === 'called' ? `Court ${esc(m.court)} · starts in <span class="cd" data-at="${m.callAt}">${fmtLeft(m.callAt)}</span>`
-      : `${m.ready ? `Be ready for Court ${esc(m.readyCourt || '–')} · ` : ''}#${pos} in order · around ${GoatLive.fmtTime(m.time)} (tentative)`;
+      : `${m.ready ? `Be ready for Court ${esc(m.readyCourt || '–')} · ` : ''}#${pos} in order · ${m.time ? 'around ' + GoatLive.fmtTime(m.time) + ' (tentative)' : 'waiting for the earlier round'}`;
     $('#sheetSub').innerHTML = sub;
     const courtSel = (cur, name = 'court') => {
       let o = cur ? '' : '<option value="">Next free court</option>';
-      for (let c = 1; c <= courts(); c++) o += `<option value="${c}" ${String(cur) === String(c) ? 'selected' : ''}>Court ${c}</option>`;
+      for (const c of GoatShared.courtList(S.settings)) o += `<option value="${esc(c)}" ${String(cur) === String(c) ? 'selected' : ''}>Court ${esc(c)}</option>`;
       return `<select data-field="${name}">${o}</select>`;
     };
     let h = '';
@@ -115,16 +120,20 @@
         <button type="button" class="big stop" data-act="stop">■ Stop countdown (back to waiting)</button>
         <div class="line"><label>Court</label>${courtSel(m.court)}</div>`;
     } else {
-      const full = onCourt() >= courts(), offBoard = idx(m.id) >= N();
-      const why = offBoard ? 'Drag it onto the board to start it' : full ? `All ${courts()} courts busy` : '';
+      const full = onCourt() >= courts();
+      const why = !known(m) ? `Waiting for ${[m.a ? '' : m.pa, m.b ? '' : m.pb].filter(Boolean).join(' and ')} — or type the names below` : full ? `All ${courts()} courts busy` : '';
+      const wo = known(m) ? `<div class="win-label">Player didn't turn up? (walkover)</div><div class="win-row"><button type="button" class="wo-btn" data-act="wo-a">${esc(m.a)} goes through</button><button type="button" class="wo-btn" data-act="wo-b">${esc(m.b)} goes through</button></div>` : '';
       h = `<div class="line"><label>Delay by</label><input type="number" inputmode="numeric" min="0" max="180" value="${m.delay || 0}" data-field="delay"><label>min</label>
           <button type="button" data-act="setdelay">Set</button></div>
         <div class="line"><label>Court</label>${courtSel(m.readyCourt || '', 'startCourt')}</div>
         ${why ? `<p class="why">${why}</p>` : ''}
         <button type="button" class="big go" data-act="call" ${why ? 'disabled' : ''}>📣 Call to court (${(S.settings && S.settings.callMinutes) || 5} min countdown)</button>
-        <button type="button" class="big start" data-act="start" ${why ? 'disabled' : ''}>● Start match now</button>`;
+        <button type="button" class="big start" data-act="start" ${why ? 'disabled' : ''}>● Start match now</button>${wo}`;
     }
     $('#sheetActs').innerHTML = h;
+    $('#delBtn').textContent = m.nx ? 'Cancel match (nobody goes through)' : 'Delete match';
+    $('#editForm').a.required = !m.pa; $('#editForm').b.required = !m.pb;
+    $('#editForm').a.placeholder = m.pa || ''; $('#editForm').b.placeholder = m.pb || '';
     if (resetForm) { const f = $('#editForm'), c = contacts[m.id] || {}; f.a.value = m.a; f.b.value = m.b; f.phoneA.value = c.a || ''; f.phoneB.value = c.b || ''; }
   }
   $('#sheetActs').addEventListener('click', async (e) => {
@@ -134,6 +143,11 @@
     if (a === 'ending') act('ending', { id: m.id, on: !m.ending });
     else if (a === 'end') { sheet.close(); endMatch(m); }
     else if (a === 'win-a' || a === 'win-b') { sheet.close(); endMatch(m, a.slice(4)); }
+    else if (a === 'wo-a' || a === 'wo-b') {
+      const w = a.slice(3), name = w === 'a' ? m.a : m.b;
+      if (!confirm(`Walkover: ${name} goes through${m.nx ? ' to the next round' : ''} without playing?`)) return;
+      sheet.close(); const r = await act('end', { id: m.id, winner: w, wo: true }); if (r) toast(`${name} goes through (walkover)`, { action: { label: 'Undo', fn: () => act('undo') }, ms: 8000 });
+    }
     else if (a === 'stop') { await act('live', { id: m.id, live: false }); toast('Countdown stopped'); }
     else if (a === 'call') {
       const c = $('#sheetActs [data-field=startCourt]').value;
@@ -175,7 +189,8 @@
   });
   $('#delBtn').onclick = () => {
     const m = find(openId); if (!m) return;
-    if (confirm(`Delete ${m.a} v ${m.b}?`)) { act('remove', { id: m.id }); sheet.close(); }
+    const txt = m.nx ? `Cancel ${m.a || m.pa} v ${m.b || m.pb}?\n\nNobody from this match goes through — the next-round opponent gets a walkover. (To send one player through, use the walkover buttons instead.)` : `Delete ${m.a} v ${m.b}?`;
+    if (confirm(txt)) { act('remove', { id: m.id }); sheet.close(); }
   };
   sheet.querySelectorAll('[data-close]').forEach((b) => (b.onclick = () => sheet.close()));
   sheet.addEventListener('click', (e) => { if (e.target === sheet) sheet.close(); }); // tap outside closes
@@ -190,9 +205,33 @@
 
   // ── bulk add: Excel / CSV file, pasted cells, lines, or a paragraph → preview → add in order ──
   const bulkDlg = $('#bulkDlg');
-  let bulkItems = [];
+  let bulkItems = [], bulkDraw = null;
+  const fmtHM = (t) => new Date(t).toTimeString().slice(0, 5);
+  function showDraw(cats) {
+    bulkItems = []; bulkDraw = cats;
+    const s = (S && S.settings) || {}, courtsN = (GoatShared.courtList(s) || []).length || 4;
+    let html = '', all = [], err = '';
+    try {
+      const ds = cats.map((c) => GoatDraw.draw(c.cat, c.players));
+      ds.forEach((d) => all.push(...d.matches));
+      const start = (() => { const t = new Date(GoatLive.now()); if (t.getHours() < 9 || (t.getHours() === 9 && t.getMinutes() < 30)) { t.setHours(9, 30, 0, 0); } return Math.ceil(t.getTime() / 60000) * 60000; })();
+      const ord = GoatDraw.order(all, { courts: courtsN, matchMin: s.matchMinutes || 20, restMin: s.restMinutes ?? 15, start });
+      const span = {}; ord.forEach((m) => { const x = (span[m.cat] = span[m.cat] || { a: m.estStart, f: 0 }); x.a = Math.min(x.a, m.estStart); if (m.rd === 'F') x.f = m.estStart; });
+      html += `<table class="draw-sum"><tr><th>Category</th><th>Players</th><th>Draw</th><th>Byes</th><th>Round 1</th><th>Matches</th><th>Starts ~</th><th>Final ~</th></tr>` +
+        ds.map((d) => { const r1 = d.matches.filter((m) => m.round === 1).length; return `<tr><td><b>${esc(d.cat)}</b></td><td>${d.players}</td><td>${d.size}</td><td>${d.byes}</td><td>${r1}</td><td>${d.matches.length}</td><td>${fmtHM(span[d.cat].a)}</td><td>${fmtHM(span[d.cat].f)}</td></tr>`; }).join('') + '</table>';
+      const last = ord.reduce((x, m) => (m.estStart > x.estStart ? m : x), ord[0]);
+      html += `<p class="draw-note">${all.length} matches · ${courtsN} courts · ${s.matchMinutes || 20} min each · last match ~${fmtHM(last.estStart)}. Times are estimates (see ⚙ Courts &amp; timing).</p>`;
+      html += ds.map((d) => `<details><summary>${esc(d.cat)} — Round 1 and byes</summary><ol class="draw-r1">` +
+        d.matches.filter((m) => m.round === 1).map((m) => `<li>#${m.no} ${esc(m.a)} <i>V</i> ${esc(m.b)}</li>`).join('') +
+        (d.byes ? `<li class="bye">Bye to the next round: ${esc(d.matches.filter((m) => m.round === 2).flatMap((m) => [m.a, m.b]).filter(Boolean).join(', '))}</li>` : '') + '</ol></details>').join('');
+    } catch (e) { err = e.message; }
+    const b = $('#bulkAdd');
+    b.disabled = !!err; b.textContent = err ? 'Add' : `Create the draw (${all.length} matches)`;
+    $('#bulkPreview').innerHTML = err ? `<p class="bad">${esc(err)}</p>` : html;
+  }
+  function showAny(r, note) { if (r && r.draw) showDraw(r.draw); else showBulk((r && r.items) || [], note); }
   function showBulk(items, note) {
-    bulkItems = items;
+    bulkItems = items; bulkDraw = null;
     const b = $('#bulkAdd');
     b.disabled = !items.length;
     b.textContent = items.length ? `Add ${items.length} match${items.length > 1 ? 'es' : ''} to the queue` : 'Add';
@@ -201,12 +240,17 @@
       : '<span>Nothing recognised yet.</span>';
   }
   $('#bulkBtn').onclick = () => { $('#bulkText').value = ''; $('#bulkFile').value = ''; showBulk([]); bulkDlg.showModal(); };
-  $('#bulkText').addEventListener('input', (e) => showBulk(GoatBulk.parseText(e.target.value)));
+  $('#bulkText').addEventListener('input', (e) => showAny(GoatBulk.parseAny(e.target.value)));
   $('#bulkFile').addEventListener('change', async (e) => {
     const f = e.target.files[0]; if (!f) return;
-    try { showBulk(await GoatBulk.readFile(f)); } catch (err) { showBulk([], err.message); }
+    try { showAny(await GoatBulk.readAny(f)); } catch (err) { showBulk([], err.message); }
   });
   $('#bulkAdd').onclick = async () => {
+    if (bulkDraw) {
+      const r = await act('draw', { cats: bulkDraw });
+      if (r) { toast(`Draw created: ${r.drawn} matches`); bulkDlg.close(); }
+      return;
+    }
     if (!bulkItems.length) return;
     const r = await act('add', { items: bulkItems, where: 'end' });
     if (r) { toast(`Added ${bulkItems.length} matches to the queue`); bulkDlg.close(); }
@@ -312,6 +356,19 @@
   });
   $('#doneList').addEventListener('click', (e) => { const r = e.target.closest('[data-restore]'); if (r) act('restore', { id: r.dataset.restore }); });
 
+  function fillSettings() {
+    if (!S) return;
+    const s = S.settings || {}, f = $('#setForm'), list = GoatShared.courtList(s);
+    $('#setSum').textContent = `Courts ${list.join(', ')} · ${s.matchMinutes || 20} min · rest ${s.restMinutes ?? 15} min`;
+    if (f.contains(document.activeElement)) return;
+    f.courtNames.value = list.join(', '); f.matchMinutes.value = s.matchMinutes || 20; f.restMinutes.value = s.restMinutes ?? 15; f.callMinutes.value = s.callMinutes ?? 5;
+  }
+  $('#setForm').addEventListener('submit', async (e) => {
+    e.preventDefault(); const f = e.target;
+    const names = f.courtNames.value.split(/[,\s]+/).filter(Boolean);
+    if (!names.length) return toast('Enter the court numbers, e.g. 1, 2, 3, 5', { error: true });
+    if (await act('settings', { settings: { courtNames: names.join(', '), matchMinutes: +f.matchMinutes.value, restMinutes: +f.restMinutes.value, callMinutes: +f.callMinutes.value } })) { toast('Saved'); f.querySelector('button').blur(); }
+  });
   $('#undoBtn').onclick = () => act('undo');
   $('#logoutBtn').onclick = async () => { await fetch('/api/logout', { method: 'POST' }); location.href = '/admin'; };
 
@@ -433,7 +490,7 @@
     refreshAdminData();
   }, 20000);
 
-  GoatLive.connect((s) => { S = s; render(); renderWA(); }, (ok) => { $('#conn').className = 'conn ' + (ok ? 'ok' : 'bad'); });
+  GoatLive.connect((s) => { S = s; render(); renderWA(); fillSettings(); }, (ok) => { $('#conn').className = 'conn ' + (ok ? 'ok' : 'bad'); });
   setInterval(() => document.querySelectorAll('.cd[data-at]').forEach((el) => { el.textContent = fmtLeft(+el.dataset.at); }), 500);
   setInterval(() => { if (!sheet.open) render(); }, 30000);
 })();

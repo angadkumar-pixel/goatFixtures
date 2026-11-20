@@ -103,6 +103,38 @@ window.GoatBulk = (() => {
     if (cell || row.length) { row.push(cell); rows.push(row); }
     return rows;
   }
+  // ── draw lists: one row per player → Category | Player | WhatsApp (in draw order) ──
+  const CAT = /^(?:(?:boys|girls|men|women)\s+)?(?:u|under)\s*-?\s*(\d{1,2})(?:\s+(?:boys|girls))?$/i;
+  const catName = (s) => { const m = String(s || '').trim().match(CAT); if (!m) return ''; const g = (String(s).match(/boys|girls|men|women/i) || [''])[0]; return (g ? g[0].toUpperCase() + g.slice(1).toLowerCase() + ' ' : '') + 'U' + Number(m[1]); };
+  function asDraw(rows) {
+    const cats = {}, order = []; let hits = 0, other = 0;
+    rows.forEach((r) => {
+      const cells = (r || []).map((c) => String(c == null ? '' : c).trim()).filter(Boolean);
+      if (!cells.length) return;
+      const ci = cells.findIndex((c) => catName(c));
+      if (ci < 0) { if (!isHeader(cells) && !cells.every((c) => /^(category|cat|age|group|player|name|whatsapp|phone|mobile|number|sr\.?|no\.?|#)$/i.test(c))) other++; return; }
+      const cat = catName(cells[ci]);
+      const rest = cells.filter((_, k) => k !== ci && (isPhone(cells[k]) || !NUM.test(cells[k]))); // drop serial numbers, keep phones
+      const phone = rest.find(isPhone) || '', names = rest.filter((c) => !isPhone(c));
+      if (names.length !== 1) { other++; return; }
+      if (!cats[cat]) { cats[cat] = []; order.push(cat); }
+      cats[cat].push({ name: tidy(names[0]), phone });
+      hits++;
+    });
+    if (hits < 2 || other > hits / 4) return null;
+    return order.map((cat) => ({ cat, players: cats[cat] }));
+  }
+  const textRows = (text) => String(text || '').split(/\r?\n/).map((l) => (l.includes('\t') ? l.split('\t') : l.includes('|') ? l.split('|') : l.split(/\s*[,;]\s*/)));
+  // Anything → { draw: [{cat, players}] } for a player list, or { items: [{a, b, …}] } for a list of matches.
+  async function readAny(file) {
+    const name = file.name.toLowerCase();
+    if (name.endsWith('.xls')) throw new Error('Old .xls files are not supported — in Excel use Save As → .xlsx or CSV.');
+    const rows = name.endsWith('.xlsx') ? await readXlsx(await file.arrayBuffer()) : name.endsWith('.csv') ? csvRows(await file.text()) : textRows(await file.text());
+    const draw = asDraw(rows);
+    if (draw) return { draw };
+    return { items: name.endsWith('.xlsx') || name.endsWith('.csv') ? parseRows(rows) : parseText(rows.map((r) => r.join(' | ')).join('\n')) };
+  }
+  function parseAny(text) { const draw = asDraw(textRows(text)); return draw ? { draw } : { items: parseText(text) }; }
   async function readFile(file) {
     const name = file.name.toLowerCase();
     if (name.endsWith('.xls')) throw new Error('Old .xls files are not supported — in Excel use Save As → .xlsx or CSV.');
@@ -110,5 +142,5 @@ window.GoatBulk = (() => {
     const text = await file.text();
     return name.endsWith('.csv') ? parseRows(csvRows(text)) : parseText(text);
   }
-  return { parseText, parseRows, readFile, csvRows };
+  return { parseText, parseRows, readFile, csvRows, readAny, parseAny, asDraw };
 })();

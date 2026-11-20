@@ -23,6 +23,14 @@
     {
       "source": "/api/wa-status/:key",
       "destination": "/api/wa-status?key=:key"
+    },
+    {
+      "source": "/api/board",
+      "destination": "/api/time?board=1"
+    },
+    {
+      "source": "/api/wa-kick",
+      "destination": "/api/wa-retry?kick=1"
     }
   ],
   "functions": {

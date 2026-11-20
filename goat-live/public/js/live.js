@@ -43,7 +43,7 @@ window.GoatLive = (() => {
     // Countdown reached 0 → ask the server to start the match (any screen can; the server does it once).
     const poked = new Map();
     function pokeCountdowns(st) {
-      if (st.settings && st.settings.autoStart === false) return;
+      if (polling || (st.settings && st.settings.autoStart === false)) return; // spectators' phones never poke the server
       st.matches.forEach((m) => {
         if (m.status !== 'called' || !m.callAt || m.callAt > now() - 300) return;
         const last = poked.get(m.id) || 0;
@@ -56,7 +56,24 @@ window.GoatLive = (() => {
     // so there is no need to rebuild 300 matches every second (that made weak screens stutter).
     setInterval(() => { if (lastRev >= 0) emit(); }, 20000);
     setInterval(() => { if (lastState) pokeCountdowns(lastState); }, 1000); // a countdown reaching 0 still starts the match on time
+    // Phones watching the board (spectators) read a shared copy every 10 s from /api/board instead of each holding a
+    // live database connection, so any number of them is fine. Also the fallback if live connections are refused.
+    let polling = false;
+    async function pollBoard() {
+      polling = true;
+      try {
+        const t = await getJSON('/api/board?t=' + Math.floor(Date.now() / 5000));
+        if (t && t.meta) { tree = t; status(true); emit(); }
+      } catch { status(false); }
+      setTimeout(pollBoard, document.hidden ? 30000 : 10000);
+    }
+    const isAdmin = /^\/admin/.test(location.pathname);
+    const phone = !isAdmin && matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 820;
+    if (phone || /[?&]poll=1\b/.test(location.search)) { pollBoard(); return; }
+    // big screens also keep WhatsApp retries / delivery checks running (the server does it at most every 20 s)
+    if (!isAdmin) setInterval(() => { if (!document.hidden) fetch('/api/wa-kick', { method: 'POST' }).catch(() => {}); }, 30000 + Math.random() * 5000);
     function open() {
+      if (polling) return;
       es = new EventSource(CFG.dbUrl.replace(/\/+$/, '') + '/goat.json');
       const onData = (patch) => (e) => {
         const { path, data } = JSON.parse(e.data);
@@ -68,7 +85,7 @@ window.GoatLive = (() => {
       es.addEventListener('patch', onData(true));
       es.addEventListener('keep-alive', () => status(true));
       es.onopen = () => status(true);
-      es.onerror = () => { status(false); if (es.readyState === 2) { fails++; setTimeout(open, Math.min(15000, 1000 * 2 ** fails)); } };
+      es.onerror = () => { status(false); if (es.readyState === 2) { fails++; if (fails >= 4 && !isAdmin) { pollBoard(); return; } setTimeout(open, Math.min(15000, 1000 * 2 ** fails)); } };
     }
     open();
   }

@@ -39,7 +39,15 @@
       <input name="phoneA" type="tel" placeholder="WhatsApp A (optional)" maxlength="20">
       <input name="phoneB" type="tel" placeholder="WhatsApp B (optional)" maxlength="20">
     </form>
-    <button type="button" id="bulkBtn" class="bulk-btn">⇪ Bulk add (Excel / paste a list)</button>
+    <button type="button" id="bulkBtn" class="bulk-btn">⇪ Import draw / bulk add (Excel or paste)</button>
+    <details class="setbox" id="setBox"><summary>⚙ Courts &amp; timing <span id="setSum"></span></summary>
+      <form id="setForm" class="setform" autocomplete="off">
+        <label>Courts<input name="courtNames" placeholder="1, 2, 3, 5"></label>
+        <label>Minutes per match<input name="matchMinutes" type="number" min="5" max="120"></label>
+        <label>Rest between a kid's matches (min)<input name="restMinutes" type="number" min="0" max="120"></label>
+        <label>“Starts in” countdown (min)<input name="callMinutes" type="number" min="0" max="60"></label>
+        <button class="primary" type="submit">Save</button>
+      </form></details>
     <details class="done"><summary>Completed <span id="doneCount">0</span></summary><ol id="doneList"></ol></details>
     <section class="failbox" id="failBox" hidden>
       <h3>📞 Couldn't reach — call these players <span id="failCount"></span></h3>
@@ -83,8 +91,9 @@
 
 <dialog id="bulkDlg" aria-labelledby="bulkTitle">
   <div class="sheet-head"><div><h3 id="bulkTitle">Bulk add matches</h3>
-    <p>Added to the <b>end of the queue, in this order</b>. Use any of these:</p></div>
+    <p><b>Draw:</b> one row per player — <code>Category | Player | WhatsApp</code> (e.g. <code>U13 | Aarav Shah | 98765 43210</code>), in draw order. Byes, rounds and the order of play are worked out for you.<br><b>Or plain matches:</b> <code>Player A | WhatsApp | Player B | WhatsApp</code>, added to the end of the queue.</p></div>
     <button type="button" class="ghost x" data-close aria-label="Close">✕</button></div>
+  <a class="tpl-link" href="/draw-template.xlsx" download>⬇ Download the Excel template (Category | Player | WhatsApp)</a>
   <label class="file-pick">📄 Choose an Excel or CSV file<input type="file" id="bulkFile" accept=".xlsx,.csv,.txt"></label>
   <textarea id="bulkText" rows="7" placeholder="…or paste / type here:&#10;• copied cells from Excel (Player A | Player B columns)&#10;• one per line:  Raj | Amit   or   Raj vs Amit&#10;• a paragraph:  Raj vs Amit, Sana vs Mehak and Priya v Riya"></textarea>
   <div id="bulkPreview" class="bulk-preview"></div>
@@ -95,6 +104,7 @@
 <script src="/config.js"></script>
 <script src="/js/goat-shared.js"></script>
 <script src="/js/live.js"></script>
+<script src="/js/goat-draw.js"></script>
 <script src="/admin/bulk.js"></script>
 <script src="/admin/admin.js"></script>
 </body>
