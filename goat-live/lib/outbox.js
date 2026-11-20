@@ -33,7 +33,10 @@ async function afterChange(prev, next, contactsInfo) {
     const follow = contactsInfo.changed ? notify.followUps(b, Object.assign({}, sent, sentPatch), contactsInfo.before, contactsInfo.after) : [];
     const ids = new Set(deliveries.map((d) => d.id));
     const all = deliveries.concat(follow.filter((d) => !ids.has(d.id))), writes = {}; // follow-ups only for messages not already planned
-    all.forEach((d) => { writes[(d.status === 'pending' ? 'queue/' + d.id : 'log/' + logKey(d))] = d; });
+    all.forEach((d) => {
+      writes[(d.status === 'pending' ? 'queue/' + d.id : 'log/' + logKey(d))] = d;
+      if (d.status === 'wrong number') { writes['failed/' + d.id] = d; pop(writes, d, 'call'); } // typo in the number → call them
+    });
     Object.keys(sentPatch).forEach((id) => { writes['sent/' + id] = sentPatch[id]; });
     if (Object.keys(writes).length) await fire.patch('goat_private', writes);
     const r = all.some((d) => d.status === 'pending') ? await processQueue(b, 12000) : {};

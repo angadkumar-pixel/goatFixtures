@@ -56,7 +56,10 @@ function queueMessages(prev, next, contactsBefore) {
     Object.assign(outbox.sent, sentPatch);
     const follow = notify.followUps(b, outbox.sent, contactsBefore, contacts);
     const ids = new Set(deliveries.map((d) => d.id));
-    deliveries.concat(follow.filter((d) => !ids.has(d.id))).forEach((d) => { if (d.status === 'pending') outbox.queue[d.id] = d; else outbox.log[logKey(d)] = d; });
+    deliveries.concat(follow.filter((d) => !ids.has(d.id))).forEach((d) => {
+      if (d.status === 'pending') outbox.queue[d.id] = d; else outbox.log[logKey(d)] = d;
+      if (d.status === 'wrong number') { outbox.failed[d.id] = d; popUp(d, 'call'); }
+    });
     saveOutbox();
     processQueue();
   } catch (e) { console.error('whatsapp', e); }

@@ -26,6 +26,19 @@
       return j;
     } catch { toast('Cannot reach the server', { error: true }); return null; }
   }
+  // same rule as the server: Indian mobile (10 digits from 6–9, optional 0 / 91 / +91), another country only with + / 00
+  function badPhone(v) {
+    const s = String(v || '').trim(); if (!s) return false;
+    const intl = /^(\+|00)/.test(s); let d = s.replace(/\D/g, '');
+    if (intl) { if (s.startsWith('00')) d = d.slice(2); return !(d.length >= 10 && d.length <= 15); }
+    if (d.length === 11 && d[0] === '0') d = d.slice(1);
+    if (d.length === 12 && d.startsWith('91')) d = d.slice(2);
+    return !/^[6-9]\d{9}$/.test(d);
+  }
+  function phonesOk(f) {
+    for (const k of ['phoneA', 'phoneB']) if (badPhone(f[k].value)) { toast(`“${f[k].value}” doesn't look like a mobile number (10 digits, e.g. 98765 43210)`, { error: true, ms: 6000 }); f[k].focus(); return false; }
+    return true;
+  }
   function toast(msg, { error = false, action = null, ms = 4500, kind = '' } = {}) {
     const t = document.createElement('div');
     t.className = 'toast' + (error ? ' error' : '') + (kind ? ' ' + kind : '');
@@ -157,6 +170,7 @@
     e.preventDefault();
     const m = find(openId); if (!m) return;
     const f = e.target;
+    if (!phonesOk(f)) return;
     if (await act('update', { id: m.id, a: f.a.value, b: f.b.value, phoneA: f.phoneA.value, phoneB: f.phoneB.value })) { toast('Saved'); sheet.close(); }
   });
   $('#delBtn').onclick = () => {
@@ -291,6 +305,7 @@
   $('#addForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const f = e.target;
+    if (!phonesOk(f)) return;
     if (await act('add', { a: f.a.value, b: f.b.value, phoneA: f.phoneA.value, phoneB: f.phoneB.value })) {
       f.a.value = ''; f.b.value = ''; f.phoneA.value = ''; f.phoneB.value = ''; f.a.focus();
     }

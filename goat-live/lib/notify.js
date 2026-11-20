@@ -43,14 +43,19 @@ const configured = () => !!PROVIDER && missing().length === 0;
 const status = () => ({ provider: PROVIDER || 'none', ready: configured(), missing: missing() });
 
 // Indian numbers: 98765 43210 / 098765… / +91 98765… / Excel's 9.87654321E9 → 919876543210
+// Indian mobile numbers: 98765 43210 · 098765 43210 · 91 98765 43210 · +91 98765 43210 (also Excel's 9.19877E+11).
+// Another country only when written with + or 00 in front. Anything else is a typo → '' (never guessed as a foreign number).
 function normPhone(p) {
   let s = String(p == null ? '' : p).trim();
   if (/^\d(\.\d+)?e\+?\d+$/i.test(s)) s = Number(s).toFixed(0);
-  let d = s.replace(/\.0+$/, '').replace(/[^\d]/g, '');
+  s = s.replace(/\.0+$/, '');
+  const intl = /^(\+|00)/.test(s);
+  let d = s.replace(/[^\d]/g, '');
   if (!d) return '';
-  if (d.length === 10) d = '91' + d;
-  else if (d.length === 11 && d[0] === '0') d = '91' + d.slice(1);
-  return d.length >= 10 && d.length <= 15 ? d : '';
+  if (intl) { if (s.startsWith('00')) d = d.slice(2); return d.length >= 10 && d.length <= 15 ? d : ''; }
+  if (d.length === 11 && d[0] === '0') d = d.slice(1);
+  if (d.length === 12 && d.startsWith('91')) d = d.slice(2);
+  return /^[6-9]\d{9}$/.test(d) ? '91' + d : '';
 }
 
 // Which messages are due, comparing before → after. `sent[matchId]` = {soon, next, later} timestamps.
@@ -81,10 +86,11 @@ const PREVIEW = {
 
 // One delivery = one message to one player. `round` = when the event happened (repeat "next"s get a new round).
 function makeDelivery(m, kind, side, round, contacts) {
-  const c = contacts[m.id] || {}, to = normPhone(c[side]), p = params(kind, m, side);
+  const c = contacts[m.id] || {}, to = normPhone(c[side]), p = params(kind, m, side), typed = String(c[side] == null ? '' : c[side]).trim();
   return { id: `${m.id}_${kind}_${side}_${round}`, matchId: m.id, kind, side, to: to ? '+' + to : '', name: side === 'a' ? m.a : m.b,
-    match: `${m.a} v ${m.b}`, p, text: PREVIEW[kind](p), createdAt: round, attempts: 0, nextAt: round, lastError: '',
-    status: to ? 'pending' : 'no number' };
+    match: `${m.a} v ${m.b}`, p, text: PREVIEW[kind](p), createdAt: round, attempts: 0, nextAt: round,
+    status: to ? 'pending' : typed ? 'wrong number' : 'no number',
+    lastError: !to && typed ? `"${typed}" is not a valid mobile number — fix it in the match` : '' };
 }
 
 // Plan the messages for a change. Returns the "sent" flags to save and the deliveries to queue.
@@ -165,7 +171,9 @@ async function attempt(d) {
   if (r.test) { d.status = 'test (not sent)'; return d; }
   if (r.ok) { d.status = 'sent'; d.sentAt = now; d.providerId = r.id || ''; return d; }
   d.lastError = r.error;
-  if (d.attempts >= MAX_ATTEMPTS) { d.status = 'failed'; return d; }
+  // errors that trying again can't fix (bad number, country not enabled, …) → call list straight away
+  const hopeless = /INTERNATIONAL_PHONE|service is disabled|invalid destination|not a valid (mobile|phone)|invalid (mobile|phone)/i.test(r.error || '');
+  if (hopeless || d.attempts >= MAX_ATTEMPTS) { d.status = 'failed'; return d; }
   d.status = 'pending'; d.nextAt = now + BACKOFF[d.attempts];
   return d;
 }
