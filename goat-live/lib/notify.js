@@ -192,6 +192,10 @@ async function processDue(items, st, { claim, budgetMs = 20000 } = {}) {
 // "Accepted" by Gupshup ≠ delivered. WhatsApp reports later: sent / delivered / read / failed (+ reason).
 // Meta error codes that are temporary (worth retrying); anything else is permanent → call the player.
 const TEMPORARY = new Set([130429, 131000, 131016, 131048, 131056, 133004, 133010, 2]);
+// Errors that will fail every time (template / parameter / not-allowed problems) → call list straight away.
+const HOPELESS = new Set([100, 131008, 131009, 131021, 131030, 131051, 132000, 132001, 132005, 132007, 132012, 132015, 132016, 132068, 132069]);
+const REPORT_RETRIES = 2;            // other failures (e.g. 131026 undeliverable): send again this many times, then call
+const CONFIRM_MS = 10 * 60e3 * SCALE;        // no 'delivered' within this → send once more, then call
 // Accept both payload styles offered in Gupshup's webhook settings (Meta v3 and Gupshup v2), plus older flat formats.
 function parseReports(body) {
   const out = [], push = (e) => { if (e.status) out.push(e); };
@@ -238,8 +242,10 @@ function applyReports(reports, recent, now = Date.now()) {
     if (r.status === 'failed') {
       d.lastError = (r.code ? `WhatsApp ${r.code}: ` : 'WhatsApp: ') + (r.reason || 'not delivered');
       d.delivery = 'failed';
-      if (TEMPORARY.has(r.code) && (d.attempts || 0) < MAX_ATTEMPTS) { d.status = 'pending'; d.nextAt = now + BACKOFF[d.attempts || 0]; }
-      else d.status = 'failed'; // permanent (not on WhatsApp, blocked, invalid…) → call them
+      d.reportFails = (d.reportFails || 0) + 1;
+      const again = (d.attempts || 0) < MAX_ATTEMPTS && !HOPELESS.has(r.code) && (TEMPORARY.has(r.code) || d.reportFails <= REPORT_RETRIES);
+      if (again) { d.status = 'pending'; d.delivery = ''; d.nextAt = now + BACKOFF[Math.min(d.attempts || 1, BACKOFF.length - 1)]; }
+      else d.status = 'failed'; // can't get through → "call these players"
       changed.set(d.id, d);
     } else if (RANK[r.status] && RANK[r.status] > (RANK[d.delivery] || 0)) {
       d.delivery = r.status; d.deliveryAt = r.at || now;
@@ -247,6 +253,22 @@ function applyReports(reports, recent, now = Date.now()) {
     }
   }
   return [...changed.values()];
+}
+
+// Messages Gupshup accepted but WhatsApp never confirmed. Only used while delivery reports are known to be working.
+// Returns { resend: [...], fail: [...], drop: [ids] }.
+function checkUnconfirmed(watch, st, now = Date.now()) {
+  const out = { resend: [], fail: [], drop: [] };
+  for (const d of watch) {
+    const age = now - (d.sentAt || now);
+    if (d.delivery === 'delivered' || d.delivery === 'read') { if (now - (d.deliveryAt || now) > 30 * 60e3 || d.delivery === 'read') out.drop.push(d.id); continue; }
+    if (age > 6 * 3600e3 || !stillRelevant(d, st)) { out.drop.push(d.id); continue; }
+    if (age < CONFIRM_MS) continue;
+    if (!d.resent && (d.attempts || 0) < MAX_ATTEMPTS) {
+      out.resend.push(Object.assign(d, { status: 'pending', resent: 1, nextAt: now, delivery: '', lastError: 'no delivery confirmation in 10 min — sending again' }));
+    } else out.fail.push(Object.assign(d, { status: 'failed', lastError: 'not delivered (no confirmation from WhatsApp) — phone may be off or not on WhatsApp' }));
+  }
+  return out;
 }
 
 // One real message to check the setup (Control Room → WhatsApp → Send test).
@@ -259,4 +281,4 @@ async function testSend(phone, kind = 'next') {
   return Object.assign({ to: '+' + to, text: PREVIEW[kind](p) }, r);
 }
 
-module.exports = { plan, followUps, processDue, stillRelevant, detect, normPhone, status, configured, PREVIEW, testSend, MAX_ATTEMPTS, parseReports, applyReports };
+module.exports = { plan, followUps, processDue, stillRelevant, detect, normPhone, status, configured, PREVIEW, testSend, MAX_ATTEMPTS, parseReports, applyReports, checkUnconfirmed };

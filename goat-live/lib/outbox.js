@@ -2,6 +2,7 @@
 //   goat_private/contacts/<matchId>  phone numbers          goat_private/sent/<matchId>   which messages a match has had
 //   goat_private/queue/<deliveryId>  waiting / retrying      goat_private/failed/<id>      gave up after 10 tries → call them
 //   goat_private/log/<time_id>       latest status of every delivery (shown in the Control Room)
+//   goat_private/watch/<id>          accepted by Gupshup, waiting for WhatsApp's 'delivered' report
 const fire = require('./fire');
 const notify = require('./notify');
 const shared = require('../public/js/goat-shared');
@@ -47,6 +48,7 @@ async function claim(d) {
 
 // Send whatever is due now (new messages and retries). Called after changes and every ~20 s by the Control Room.
 async function processQueue(st, budgetMs = 20000) {
+  await checkWatch(st).catch((e) => console.error('watch', e));
   const q = (await fire.get('goat_private/queue')) || {};
   const items = Object.values(q);
   if (!items.length) return { processed: 0, pending: 0 };
@@ -56,6 +58,7 @@ async function processQueue(st, budgetMs = 20000) {
   for (const d of done) {
     delete d.lockUntil;
     writes['log/' + logKey(d)] = d;
+    if (d.status === 'sent') writes['watch/' + d.id] = d;                 // wait for WhatsApp to confirm
     if (d.status === 'pending') writes['queue/' + d.id] = d;               // will retry later
     else {
       writes['queue/' + d.id] = null;                                      // finished: sent / skipped / failed
@@ -71,28 +74,53 @@ async function failedAction(id, action) {
   const d = await fire.get('goat_private/failed/' + id);
   if (!d) return { ok: false, error: 'Not found' };
   if (action === 'done') { await fire.patch('goat_private', { ['failed/' + id]: null }); return { ok: true }; }
-  Object.assign(d, { status: 'pending', attempts: 0, nextAt: Date.now(), lastError: '' });
+  Object.assign(d, { status: 'pending', attempts: 0, reportFails: 0, resent: 0, delivery: '', nextAt: Date.now(), lastError: '' });
   await fire.patch('goat_private', { ['failed/' + id]: null, ['queue/' + id]: d, ['log/' + logKey(d)]: d });
   return Object.assign({ ok: true }, await processQueue(null, 15000));
 }
 
-// Delivery reports from Gupshup: mark delivered / read, retry temporary failures, list permanent ones for a call.
+// Delivery reports from Gupshup (every report is processed): mark delivered / read, resend failures automatically,
+// and only when it still can't get through put the player on the call list.
 async function handleReports(payload, method = 'POST') {
   const reports = notify.parseReports(payload);
-  const sample = JSON.stringify(payload || {}).slice(0, 1500);
-  const hook = { at: Date.now(), reports: reports.length, matched: 0, sample, method };
+  const hook = { at: Date.now(), reports: reports.length, matched: 0, sample: JSON.stringify(payload || {}).slice(0, 1500), method };
   if (!reports.length) { await fire.patch('goat_private', { hook_last: hook }); return { matched: 0 }; }
-  const logAll = (await fire.get('goat_private/log', `&orderBy=${encodeURIComponent('"$key"')}&limitToLast=400`)) || {};
-  const changed = notify.applyReports(reports, Object.values(logAll));
-  const writes = { hook_last: hook };
+  const watch = (await fire.get('goat_private/watch')) || {};
+  const changed = notify.applyReports(reports, Object.values(watch));
+  const writes = { hook_last: Object.assign(hook, { matched: changed.length }) };
+  if (changed.length) writes.hook_ok = hook.at;                       // reports are working → the watchdog may act
   for (const d of changed) {
-    writes['log/' + logKey(d)] = d;
-    if (d.status === 'pending') writes['queue/' + d.id] = d;          // temporary failure → retry
-    if (d.status === 'failed') writes['failed/' + d.id] = d;          // permanent → "call these players"
+    const k = 'log/' + logKey(d);
+    if (d.status === 'sent') {                                          // delivered / read: touch only those fields
+      writes[k + '/delivery'] = d.delivery; writes[k + '/deliveryAt'] = d.deliveryAt;
+      if (d.delivery === 'read') writes['watch/' + d.id] = null;
+      else { writes['watch/' + d.id + '/delivery'] = d.delivery; writes['watch/' + d.id + '/deliveryAt'] = d.deliveryAt; }
+    } else {
+      writes[k] = d; writes['watch/' + d.id] = null;
+      if (d.status === 'pending') writes['queue/' + d.id] = d;          // failed → send again
+      if (d.status === 'failed') writes['failed/' + d.id] = d;          // still can't get through → call
+    }
   }
-  hook.matched = changed.length;
   await fire.patch('goat_private', writes);
+  if (changed.some((d) => d.status === 'pending')) await processQueue(null, 8000).catch(() => {}); // resend right away when due
   return { reports: reports.length, matched: changed.length };
+}
+
+// Accepted but never confirmed → send once more, then call. Only while reports are arriving (else we'd resend everything).
+async function checkWatch(st) {
+  const [watch, ok] = await Promise.all([fire.get('goat_private/watch'), fire.get('goat_private/hook_ok')]);
+  const list = Object.entries(watch || {}).map(([id, v]) => Object.assign({ id }, v)); // id from the key (safe even for half-written entries)
+  if (!list.length) return;
+  const working = ok && Date.now() - ok < 2 * 3600e3;
+  if (!st) st = norm((await fire.load()).st);
+  const r = notify.checkUnconfirmed(list, st);
+  const writes = {};
+  r.drop.forEach((id) => { writes['watch/' + id] = null; });
+  if (working) {
+    r.resend.forEach((d) => { writes['watch/' + d.id] = null; writes['queue/' + d.id] = d; writes['log/' + logKey(d)] = d; });
+    r.fail.forEach((d) => { writes['watch/' + d.id] = null; writes['failed/' + d.id] = d; writes['log/' + logKey(d)] = d; });
+  }
+  if (Object.keys(writes).length) await fire.patch('goat_private', writes);
 }
 
 async function adminData() {

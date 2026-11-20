@@ -43,7 +43,7 @@
     <details class="done"><summary>Completed <span id="doneCount">0</span></summary><ol id="doneList"></ol></details>
     <section class="failbox" id="failBox" hidden>
       <h3>📞 Couldn't reach — call these players <span id="failCount"></span></h3>
-      <p>WhatsApp failed 10 times for these. Call them, then tap “Called ✓”.</p>
+      <p>WhatsApp couldn't get through even after retrying. Call them, then tap “Called ✓”.</p>
       <ol id="failList"></ol>
     </section>
     <details class="wa" id="waBox">
@@ -52,7 +52,7 @@
       <div class="wa-hook" id="waHook" hidden>
         <b>Delivery reports</b> <span id="waHookState"></span>
         <div class="hook-row"><code id="waHookUrl"></code><button type="button" id="waHookCopy">Copy</button></div>
-        <details class="hook-raw" id="waHookRaw" hidden><summary>Last report from Gupshup (raw)</summary><pre id="waHookSample"></pre></details>
+        <details class="hook-raw" id="waHookRaw" hidden><summary>Last report from Gupshup (raw, for troubleshooting)</summary><pre id="waHookSample"></pre></details>
         <small>Gupshup → WhatsApp → Webhooks → <b>Add Webhook</b> → paste this as the Callback URL (format: Meta v3). Keep the existing webhook as it is.</small>
       </div>
       <form class="wa-test" id="waTest" autocomplete="off">
