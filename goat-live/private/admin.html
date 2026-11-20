@@ -41,6 +41,11 @@
     </form>
     <button type="button" id="bulkBtn" class="bulk-btn">⇪ Bulk add (Excel / paste a list)</button>
     <details class="done"><summary>Completed <span id="doneCount">0</span></summary><ol id="doneList"></ol></details>
+    <section class="failbox" id="failBox" hidden>
+      <h3>📞 Couldn't reach — call these players <span id="failCount"></span></h3>
+      <p>WhatsApp failed 10 times for these. Call them, then tap “Called ✓”.</p>
+      <ol id="failList"></ol>
+    </section>
     <details class="wa" id="waBox">
       <summary>WhatsApp messages <span id="waBadge"></span></summary>
       <div class="wa-head"><span id="waMode"></span><button type="button" id="waToggle"></button></div>

@@ -301,7 +301,7 @@
   $('#logoutBtn').onclick = async () => { await fetch('/api/logout', { method: 'POST' }); location.href = '/admin'; };
 
   // ── WhatsApp: phone numbers + message log (admin only) ──
-  let contacts = {}, wa = { provider: 'none', ready: false }, waLog = [], adminT = null;
+  let contacts = {}, wa = { provider: 'none', ready: false }, waLog = [], waFailed = [], waPending = 0, adminT = null;
   function refreshAdminData(delay = 0) {
     clearTimeout(adminT);
     adminT = setTimeout(async () => {
@@ -309,7 +309,7 @@
         const r = await fetch('/api/admin-data', { cache: 'no-store' });
         if (!r.ok) return;
         const j = await r.json();
-        contacts = j.contacts || {}; wa = j.whatsapp || wa; waLog = j.log || [];
+        contacts = j.contacts || {}; wa = j.whatsapp || wa; waLog = j.log || []; waFailed = j.failed || []; waPending = j.pending || 0;
         renderWA();
       } catch {}
     }, delay);
@@ -317,13 +317,23 @@
   function renderWA() {
     if (!S) return;
     const on = !!(S.settings && S.settings.notify);
-    $('#waBadge').textContent = on ? (wa.ready ? 'ON' : 'ON · test mode') : 'OFF';
+    $('#waBadge').textContent = (on ? (wa.ready ? 'ON' : 'ON · test mode') : 'OFF') + (waPending ? ` · ${waPending} sending/retrying` : '');
+    // players we couldn't reach after 10 tries → call them
+    const kindName = { soon: 'Coming up', next: "You're next", later: 'Moved later' };
+    $('#failBox').hidden = !waFailed.length;
+    $('#failCount').textContent = waFailed.length;
+    $('#failList').innerHTML = waFailed.map((d) => `<li><div class="who"><b>${esc(d.name)}</b> · ${esc(d.match)}</div>
+      <a class="tel" href="tel:${esc(d.to)}">📞 ${esc(d.to)}</a>
+      <div class="why">“${esc(kindName[d.kind] || d.kind)}” not delivered after ${d.attempts} tries — ${esc(d.lastError || 'unknown error')}</div>
+      <div class="btns"><button type="button" data-fail="retry" data-id="${esc(d.id)}">Try again</button><button type="button" class="ok" data-fail="done" data-id="${esc(d.id)}">Called ✓</button></div></li>`).join('');
     $('#waMode').textContent = wa.ready ? `Sending through ${wa.provider === 'meta' ? 'Meta' : wa.provider === 'gupshup-enterprise' ? 'Gupshup (Enterprise)' : 'Gupshup'}` : 'Test mode — missing in Vercel: ' + ((wa.missing || []).join(', ') || 'settings') + ' (then Redeploy)';
     const t = $('#waToggle'); t.textContent = on ? 'Messages ON' : 'Messages OFF'; t.className = on ? 'on' : '';
     const kind = { soon: 'Coming up', next: "You're next", later: 'Moved later' };
     $('#waLog').innerHTML = waLog.length ? waLog.map((e) => {
-      const cls = /^sent/.test(e.status) ? 'ok' : /^test/.test(e.status) ? 'test' : 'bad';
-      return `<li><span class="st ${cls}">${esc(e.status)}</span><b>${esc(kind[e.kind] || e.kind)}</b> → ${esc(e.name)} ${esc(e.to || '')} · ${new Date(e.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}<p>${esc(e.text)}</p></li>`;
+      const label = e.status === 'pending' ? `retrying (${e.attempts || 0}/10)${e.lastError ? ' — ' + e.lastError : ''}` : e.status === 'failed' ? `failed after ${e.attempts} tries — call them` : e.status;
+      const cls = /^sent/.test(e.status) ? 'ok' : /^test|^pending|^skipped/.test(e.status) ? 'test' : 'bad';
+      const at = e.sentAt || e.lastAttemptAt || e.createdAt || e.at;
+      return `<li><span class="st ${cls}">${esc(label)}</span><b>${esc(kind[e.kind] || e.kind)}</b> → ${esc(e.name)} ${esc(e.to || '')} · ${new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}<p>${esc(e.text)}</p></li>`;
     }).join('') : '<li>No messages yet.</li>';
   }
   $('#waToggle').onclick = () => act('settings', { settings: { notify: !(S.settings && S.settings.notify) } });
@@ -337,8 +347,24 @@
       out.textContent = r.ok ? `Sent to ${r.to} ✓ — check WhatsApp. (Gupshup id ${r.id || '-'})` : `Not sent: ${r.error}`;
     } catch { out.className = 'wa-test-result bad'; out.textContent = 'Could not reach the server'; }
   });
+  $('#failList').addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-fail]'); if (!b) return;
+    b.disabled = true;
+    try {
+      await fetch('/api/wa-retry', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: b.dataset.id, action: b.dataset.fail }) });
+      toast(b.dataset.fail === 'done' ? 'Marked as called' : 'Trying again…');
+    } catch { toast('Cannot reach the server', { error: true }); }
+    refreshAdminData();
+  });
   refreshAdminData();
-  setInterval(() => { if ($('#waBox').open) refreshAdminData(); }, 10000);
+  // Keep WhatsApp deliveries moving: sends due messages and retries failed ones (online there is no background timer,
+  // so the open Control Room does this every 20 s). Also refreshes the panel.
+  setInterval(async () => {
+    if (S && S.settings && S.settings.notify) {
+      try { await fetch('/api/wa-retry', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); } catch {}
+    }
+    refreshAdminData();
+  }, 20000);
 
   GoatLive.connect((s) => { S = s; render(); renderWA(); }, (ok) => { $('#conn').className = 'conn ' + (ok ? 'ok' : 'bad'); });
   setInterval(() => document.querySelectorAll('.cd[data-at]').forEach((el) => { el.textContent = fmtLeft(+el.dataset.at); }), 500);

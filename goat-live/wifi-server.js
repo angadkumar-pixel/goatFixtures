@@ -36,24 +36,51 @@ function save() {
   fs.writeFileSync(tmp, JSON.stringify(state, null, 1));
   fs.renameSync(tmp, STATE_FILE);
 }
-// WhatsApp (same rules as online): who was told what, plus a log, kept in data/notify.json (private).
+// WhatsApp (same rules as online), kept private in data/notify.json:
+//   sent = which messages each match has had · queue = waiting / retrying · failed = gave up after 10 tries · log = latest status
 const NOTIFY_FILE = path.join(DATA, 'notify.json');
-let outbox = { sent: {}, log: [] };
-try { outbox = Object.assign(outbox, JSON.parse(fs.readFileSync(NOTIFY_FILE, 'utf8'))); } catch {}
+let outbox = { sent: {}, queue: {}, failed: {}, log: {} };
+try { const o = JSON.parse(fs.readFileSync(NOTIFY_FILE, 'utf8')); outbox = Object.assign(outbox, o, { log: Array.isArray(o.log) ? {} : o.log || {} }); } catch {}
+const saveOutbox = () => {
+  const keys = Object.keys(outbox.log).sort();
+  keys.slice(0, Math.max(0, keys.length - 800)).forEach((k) => delete outbox.log[k]); // keep the latest 800
+  fs.writeFileSync(NOTIFY_FILE, JSON.stringify(outbox));
+};
+const logKey = (d) => `${d.createdAt}_${d.id}`;
 const contactsOf = () => Object.fromEntries(state.matches.concat(state.done).filter((m) => m.contact).map((m) => [m.id, m.contact]));
-async function sendMessages(prev, next) {
+function queueMessages(prev, next, contactsBefore) {
   if (!next.settings.notify) return;
   try {
-    const { sentPatch, log } = await notify.run(prev, JSON.parse(JSON.stringify(next)), { contacts: contactsOf(), sent: outbox.sent, enabled: true });
+    const b = core.normalize(JSON.parse(JSON.stringify(next))), contacts = contactsOf();
+    const { sentPatch, deliveries } = notify.plan(prev, b, { contacts, sent: outbox.sent });
     Object.assign(outbox.sent, sentPatch);
-    outbox.log = log.reverse().concat(outbox.log).slice(0, 500);
-    fs.writeFileSync(NOTIFY_FILE, JSON.stringify(outbox));
+    const follow = notify.followUps(b, outbox.sent, contactsBefore, contacts);
+    const ids = new Set(deliveries.map((d) => d.id));
+    deliveries.concat(follow.filter((d) => !ids.has(d.id))).forEach((d) => { if (d.status === 'pending') outbox.queue[d.id] = d; else outbox.log[logKey(d)] = d; });
+    saveOutbox();
+    processQueue();
   } catch (e) { console.error('whatsapp', e); }
 }
+let sending = false;
+async function processQueue() { // new messages + retries; also runs every 10 s
+  if (sending || !Object.keys(outbox.queue).length) return;
+  sending = true;
+  try {
+    const done = await notify.processDue(Object.values(outbox.queue), core.normalize(JSON.parse(JSON.stringify(state))));
+    for (const d of done) {
+      outbox.log[logKey(d)] = d;
+      if (d.status === 'pending') outbox.queue[d.id] = d;
+      else { delete outbox.queue[d.id]; if (d.status === 'failed') outbox.failed[d.id] = d; }
+    }
+    if (done.length) saveOutbox();
+  } catch (e) { console.error('whatsapp', e); }
+  sending = false;
+}
+setInterval(processQueue, 10000);
 
 function dispatch(act) {
   let result = null;
-  const prevSt = core.normalize(JSON.parse(JSON.stringify(state)));
+  const prevSt = core.normalize(JSON.parse(JSON.stringify(state))), contactsBefore = contactsOf();
   if (act.type === 'undo') {
     const prev = history.pop();
     if (!prev) throw new Error('Nothing to undo');
@@ -70,7 +97,7 @@ function dispatch(act) {
   state.rev++;
   save();
   broadcast();
-  if (act.type !== 'undo') sendMessages(prevSt, state); // runs in the background, never blocks the board
+  if (act.type !== 'undo') queueMessages(prevSt, state, contactsBefore); // sends in the background, never blocks the board
   return result;
 }
 core.normalize(state); save();
@@ -165,7 +192,22 @@ http.createServer(async (req, res) => {
     }
     if (p === '/api/admin-data') {
       if (!admin) return send(res, 401, { error: 'Not logged in' });
-      return send(res, 200, { contacts: contactsOf(), log: outbox.log.slice(0, 150), whatsapp: notify.status() });
+      const log = Object.keys(outbox.log).sort().reverse().slice(0, 150).map((k) => outbox.log[k]);
+      return send(res, 200, { contacts: contactsOf(), log, failed: Object.values(outbox.failed).sort((a, b) => b.lastAttemptAt - a.lastAttemptAt),
+        pending: Object.keys(outbox.queue).length, whatsapp: notify.status() });
+    }
+    if (p === '/api/wa-retry' && req.method === 'POST') {
+      if (!admin) return send(res, 401, { error: 'Not logged in' });
+      const { id, action } = await readJson(req);
+      if (id) {
+        const d = outbox.failed[id];
+        if (!d) return send(res, 200, { ok: false, error: 'Not found' });
+        delete outbox.failed[id];
+        if (action !== 'done') { Object.assign(d, { status: 'pending', attempts: 0, nextAt: Date.now(), lastError: '' }); outbox.queue[id] = d; outbox.log[logKey(d)] = d; }
+        saveOutbox();
+      }
+      await processQueue();
+      return send(res, 200, { ok: true, pending: Object.keys(outbox.queue).length });
     }
     if (p === '/api/logout') { res.setHeader('Set-Cookie', auth.clearCookie()); return send(res, 200, { ok: true }); }
     if (p === '/api/action' && req.method === 'POST') {

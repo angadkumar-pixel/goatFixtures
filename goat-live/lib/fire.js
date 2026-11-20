@@ -104,4 +104,4 @@ async function commit(oldTree, next, base) {
   return true;
 }
 
-module.exports = { DB, get, patch, claim, load, commit, pushHistory, lastHistory, dropHistory, failCount, addFail, clearFails };
+module.exports = { DB, req, get, patch, claim, load, commit, pushHistory, lastHistory, dropHistory, failCount, addFail, clearFails };

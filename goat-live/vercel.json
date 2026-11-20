@@ -24,6 +24,12 @@
   "functions": {
     "api/admin.js": {
       "includeFiles": "private/**"
+    },
+    "api/action.js": {
+      "maxDuration": 60
+    },
+    "api/wa-retry.js": {
+      "maxDuration": 60
     }
   },
   "headers": [

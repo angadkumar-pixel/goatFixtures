@@ -31,9 +31,9 @@ module.exports = async (req, res) => {
       const keep = act.type !== 'replay';
       if (keep) st.canUndo = true;
       if (!(await fire.commit(tree, st, base))) continue;
-      await Promise.all([keep ? fire.pushHistory(before) : null, outbox.saveContacts(st)]);
-      const messages = await outbox.sendMessages(prevSt, st); // WhatsApp: "soon" / "you're next" / "moved later"
-      return json(res, 200, { ok: true, rev: st.rev, ...(result || {}), messages: messages.length });
+      const [, contactsInfo] = await Promise.all([keep ? fire.pushHistory(before) : null, outbox.saveContacts(st)]);
+      const wa = await outbox.afterChange(prevSt, st, contactsInfo); // WhatsApp: queue + send "soon" / "next" / "later"
+      return json(res, 200, { ok: true, rev: st.rev, ...(result || {}), whatsapp: wa });
     }
     json(res, 409, { error: 'Busy, please try again' });
   } catch (e) { fail(res, e); }
