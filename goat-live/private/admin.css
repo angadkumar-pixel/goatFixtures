@@ -143,6 +143,8 @@ button.small { padding: 6px 10px; font-size: 13px; color: var(--mute); }
 .hook-row { display: flex; gap: 6px; align-items: center; margin: 6px 0; }
 .hook-row code { flex: 1; min-width: 0; overflow-wrap: anywhere; font: 600 12px ui-monospace, Consolas, monospace; color: var(--gold); background: #070c24; padding: 6px 8px; border-radius: 6px; }
 .hook-row button { padding: 6px 10px; font-size: 12px; }
+.hook-raw { margin: 4px 0 6px; } .hook-raw summary { cursor: pointer; font-size: 12px; }
+.hook-raw pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow: auto; font: 11px ui-monospace, Consolas, monospace; background: #070c24; color: var(--text); padding: 8px; border-radius: 6px; user-select: text; }
 .wa-hook small { display: block; font-size: 11px; line-height: 1.4; }
 .wa-test { display: grid; grid-template-columns: 1fr auto auto; gap: 6px; margin-bottom: 6px; }
 .wa-test select { width: auto; }

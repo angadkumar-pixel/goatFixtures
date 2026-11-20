@@ -77,10 +77,10 @@ async function failedAction(id, action) {
 }
 
 // Delivery reports from Gupshup: mark delivered / read, retry temporary failures, list permanent ones for a call.
-async function handleReports(payload) {
+async function handleReports(payload, method = 'POST') {
   const reports = notify.parseReports(payload);
   const sample = JSON.stringify(payload || {}).slice(0, 1500);
-  const hook = { at: Date.now(), reports: reports.length, sample };
+  const hook = { at: Date.now(), reports: reports.length, matched: 0, sample, method };
   if (!reports.length) { await fire.patch('goat_private', { hook_last: hook }); return { matched: 0 }; }
   const logAll = (await fire.get('goat_private/log', `&orderBy=${encodeURIComponent('"$key"')}&limitToLast=400`)) || {};
   const changed = notify.applyReports(reports, Object.values(logAll));
@@ -90,6 +90,7 @@ async function handleReports(payload) {
     if (d.status === 'pending') writes['queue/' + d.id] = d;          // temporary failure → retry
     if (d.status === 'failed') writes['failed/' + d.id] = d;          // permanent → "call these players"
   }
+  hook.matched = changed.length;
   await fire.patch('goat_private', writes);
   return { reports: reports.length, matched: changed.length };
 }
@@ -104,7 +105,7 @@ async function adminData() {
   ]);
   const log = Object.keys(logAll || {}).sort().reverse().map((k) => logAll[k]);
   return { contacts: contacts || {}, log, failed: Object.values(failed || {}).sort((a, b) => b.lastAttemptAt - a.lastAttemptAt),
-    pending: Object.keys(queue || {}).length, lastReport: hook ? hook.at : null };
+    pending: Object.keys(queue || {}).length, lastReport: hook ? hook.at : null, hook: hook || null };
 }
 
 module.exports = { saveContacts, afterChange, processQueue, failedAction, adminData, handleReports };

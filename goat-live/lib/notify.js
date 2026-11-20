@@ -212,11 +212,13 @@ function parseReports(body) {
     }
     // older flat delivery-report formats (externalId / phoneNo / status / cause …)
     const st = o.status || o.eventType || o.event || o.deliveryStatus;
-    if (st && (o.phoneNo || o.destAddr || o.destination || o.phone || o.recipient || o.externalId)) {
+    if (o.response && typeof o.response === 'object') return one(o.response);
+    if (st && (o.phoneNo || o.destAddr || o.destination || o.phone || o.recipient || o.recipient_id || o.externalId || o.messageId)) {
       let s = String(st).toLowerCase();
-      if (/^(success|delivrd|delivered)$/.test(s)) s = 'delivered'; else if (/fail|undeliv|reject|expired|error/.test(s)) s = 'failed';
-      push({ ids: [o.externalId, o.id, o.messageId, o.gsId].filter(Boolean).map(String), phone: o.phoneNo || o.destAddr || o.destination || o.phone || o.recipient,
-        status: s, code: Number(o.errCode || o.code) || 0, reason: o.cause || o.reason || o.description || '', at: Number(o.deliveredTS || o.timestamp) || Date.now() });
+      if (/^(success|delivrd|delivered)$/.test(s)) s = 'delivered'; else if (/^(read|seen)$/.test(s)) s = 'read'; else if (/^(sent|submitted|enqueued)$/.test(s)) s = 'sent'; else if (/fail|undeliv|reject|expired|error/.test(s)) s = 'failed';
+      const t = Number(o.eventTs || o.deliveredTS || o.timestamp) || 0;
+      push({ ids: [o.externalId, o.id, o.messageId, o.gsId, o.extra].filter(Boolean).map(String), phone: o.phoneNo || o.destAddr || o.destination || o.phone || o.recipient || o.recipient_id,
+        status: s, code: Number(o.errorCode || o.errCode || o.code) || 0, reason: o.cause || o.reason || o.description || '', at: t ? (t < 1e12 ? t * 1000 : t) : Date.now() });
     }
   };
   one(body);

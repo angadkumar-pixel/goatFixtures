@@ -309,7 +309,7 @@
         const r = await fetch('/api/admin-data', { cache: 'no-store' });
         if (!r.ok) return;
         const j = await r.json();
-        contacts = j.contacts || {}; wa = j.whatsapp || wa; waLog = j.log || []; waFailed = j.failed || []; waPending = j.pending || 0; waHook = { url: j.webhookUrl || '', last: j.lastReport || null };
+        contacts = j.contacts || {}; wa = j.whatsapp || wa; waLog = j.log || []; waFailed = j.failed || []; waPending = j.pending || 0; waHook = { url: j.webhookUrl || '', last: j.lastReport || null, info: j.hook || null };
         renderWA();
       } catch {}
     }, delay);
@@ -323,7 +323,12 @@
     if (waHook.url) {
       $('#waHookUrl').textContent = waHook.url;
       const mins = waHook.last ? Math.round((Date.now() - waHook.last) / 60000) : null;
-      $('#waHookState').innerHTML = waHook.last ? `<span class="on">connected · last report ${mins < 1 ? 'just now' : mins + ' min ago'}</span>` : '<span class="off">not connected yet</span>';
+      const h = waHook.info || {}, ago = mins < 1 ? 'just now' : mins + ' min ago';
+      $('#waHookState').innerHTML = !waHook.last ? '<span class="off">not connected yet</span>'
+        : !h.reports ? `<span class="off">a report arrived ${ago} but could not be read (see raw below)</span>`
+        : `<span class="on">connected · last report ${ago}${h.matched ? '' : ' (not matched to a message)'}</span>`;
+      $('#waHookRaw').hidden = !waHook.info;
+      if (waHook.info) { let s = h.sample || ''; try { s = JSON.stringify(JSON.parse(s), null, 1); } catch {} $('#waHookSample').textContent = (h.method || 'POST') + '  ' + s; }
     }
     // players we couldn't reach after 10 tries → call them
     const kindName = { soon: 'Coming up', next: "You're next", later: 'Moved later' };
