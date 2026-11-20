@@ -144,17 +144,18 @@ async function events(since) {
 }
 
 async function adminData() {
-  const [contacts, logAll, failed, queue, hook, hookOk] = await Promise.all([
+  const [contacts, logAll, failed, queue, hook, hookOk, rejected] = await Promise.all([
     fire.get('goat_private/contacts'),
     fire.get('goat_private/log', `&orderBy=${encodeURIComponent('"$key"')}&limitToLast=150`),
     fire.get('goat_private/failed'),
     fire.get('goat_private/queue', '&shallow=true'),
     fire.get('goat_private/hook_last'),
     fire.get('goat_private/hook_ok'),
+    fire.get('goat_private/hook_rejected'),
   ]);
   const log = Object.keys(logAll || {}).sort().reverse().map((k) => logAll[k]);
   return { contacts: contacts || {}, log, failed: Object.values(failed || {}).sort((a, b) => b.lastAttemptAt - a.lastAttemptAt),
-    pending: Object.keys(queue || {}).length, lastReport: hook ? hook.at : null, hook: hook || null, hookOk: hookOk || null };
+    pending: Object.keys(queue || {}).length, lastReport: hook ? hook.at : null, hook: hook || null, hookOk: hookOk || null, hookRejected: rejected || null };
 }
 
 module.exports = { saveContacts, afterChange, processQueue, failedAction, adminData, handleReports, events };
