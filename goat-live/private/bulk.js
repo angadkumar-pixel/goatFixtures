@@ -124,17 +124,54 @@ window.GoatBulk = (() => {
     if (hits < 2 || other > hits / 4) return null;
     return order.map((cat) => ({ cat, players: cats[cat] }));
   }
+  // ── bracket sheets: the first round already paired (like the printed brackets) ──
+  //   Category | Player 1 | WhatsApp 1 | Player 2 | WhatsApp 2      (or Player 1 | Player 2 | Phone 1 | Phone 2 under a
+  //   title row such as "Boys Singles U11 | First Round"). "Bye" on one side = goes straight through. Columns found by header.
+  const looseCat = (s) => { const m = String(s || '').match(/\b(girls\s+(?:singles\s+)?)?u\s*-?\s*(\d{1,2})\b/i); return m ? (m[1] ? 'Girls ' : '') + 'U' + Number(m[2]) : ''; };
+  function asPairs(rows) {
+    let col = null, cat = '';
+    const out = {}, order = [];
+    const header = (cells) => {
+      const c = { cat: -1, a: -1, b: -1, pa: -1, pb: -1 };
+      cells.forEach((x, i) => {
+        const t = String(x || '').toLowerCase().trim(); if (!t) return;
+        const ph = /phone|whatsapp|mobile|contact|number|\bno\b/.test(t), one = /(?:^|\D)1\b|\ba\b/.test(t.replace(/no\./g, '')), two = /(?:^|\D)2\b|\bb\b/.test(t);
+        if (/^(category|cat|age\s*group|group|event)$/.test(t)) c.cat = i;
+        else if (ph && one) c.pa = i; else if (ph && two) c.pb = i;
+        else if (/player|name|team/.test(t) && one) c.a = i; else if (/player|name|team/.test(t) && two) c.b = i;
+      });
+      return c.a >= 0 && c.b >= 0 ? c : null;
+    };
+    for (const r of rows) {
+      const cells = (r || []).map((x) => String(x == null ? '' : x).trim());
+      if (!cells.some(Boolean)) continue;
+      const h = header(cells); if (h) { col = h; continue; }
+      if (!col) { const c = cells.map(looseCat).find(Boolean); if (c) cat = c; continue; }
+      const a = cells[col.a] || '', b = cells[col.b] || '';
+      if (!a && !b) { const c = cells.map(looseCat).find(Boolean); if (c) cat = c; continue; }
+      const rowCat = col.cat >= 0 ? catName(cells[col.cat]).replace(/^Boys /, '') || looseCat(cells[col.cat]) : '';
+      if (!rowCat && cells.filter(Boolean).length === 1) { // a title row ("Boys Singles U13 | First Round", "BRACKET 2")
+        const t = a || b, c = looseCat(t);
+        if (c) { cat = c; continue; }
+        if (/bracket|round|singles|doubles|draw|academy|tournament|pool|half/i.test(t)) continue;
+      }
+      const k = rowCat || cat; if (!k) continue;
+      if (!out[k]) { out[k] = []; order.push(k); }
+      out[k].push({ a, b, phoneA: col.pa >= 0 ? cells[col.pa] : '', phoneB: col.pb >= 0 ? cells[col.pb] : '' });
+    }
+    return order.length ? order.map((c) => ({ cat: c, pairs: out[c] })) : null;
+  }
   const textRows = (text) => String(text || '').split(/\r?\n/).map((l) => (l.includes('\t') ? l.split('\t') : l.includes('|') ? l.split('|') : l.split(/\s*[,;]\s*/)));
   // Anything → { draw: [{cat, players}] } for a player list, or { items: [{a, b, …}] } for a list of matches.
   async function readAny(file) {
     const name = file.name.toLowerCase();
     if (name.endsWith('.xls')) throw new Error('Old .xls files are not supported — in Excel use Save As → .xlsx or CSV.');
     const rows = name.endsWith('.xlsx') ? await readXlsx(await file.arrayBuffer()) : name.endsWith('.csv') ? csvRows(await file.text()) : textRows(await file.text());
-    const draw = asDraw(rows);
+    const draw = asPairs(rows) || asDraw(rows);
     if (draw) return { draw };
     return { items: name.endsWith('.xlsx') || name.endsWith('.csv') ? parseRows(rows) : parseText(rows.map((r) => r.join(' | ')).join('\n')) };
   }
-  function parseAny(text) { const draw = asDraw(textRows(text)); return draw ? { draw } : { items: parseText(text) }; }
+  function parseAny(text) { const draw = asPairs(textRows(text)) || asDraw(textRows(text)); return draw ? { draw } : { items: parseText(text) }; }
   async function readFile(file) {
     const name = file.name.toLowerCase();
     if (name.endsWith('.xls')) throw new Error('Old .xls files are not supported — in Excel use Save As → .xlsx or CSV.');
@@ -142,5 +179,5 @@ window.GoatBulk = (() => {
     const text = await file.text();
     return name.endsWith('.csv') ? parseRows(csvRows(text)) : parseText(text);
   }
-  return { parseText, parseRows, readFile, csvRows, readAny, parseAny, asDraw };
+  return { parseText, parseRows, readFile, csvRows, readAny, parseAny, asDraw, asPairs, readXlsx };
 })();

@@ -10,12 +10,28 @@
 
   // Court names, e.g. "1, 2, 3, 5" (settings.courtNames); otherwise 1…courts.
   function courtList(s) {
-    const raw = String((s && s.courtNames) || '').split(/[,s]+/).map((x) => x.trim()).filter(Boolean);
+    const raw = String((s && s.courtNames) || '').split(/[,\s]+/).map((x) => x.trim()).filter(Boolean);
     if (raw.length) return raw.slice(0, 20);
     return Array.from({ length: Number(s && s.courts) || 4 }, (_, i) => String(i + 1));
   }
   const pname = (n) => String(n || '').toLowerCase().replace(/[^a-z0-9]+/g, ''); // 'Aarav  Shah' = 'aarav shah'
   const known = (m) => !!(m.a && m.b); // both players known (a knockout match waits for its "Winner of #n")
+  // Category start times, e.g. {U11: 570} = 9:30 (minutes after midnight, India time). Typed as "U11 9:30, U13 11:30, U15 2pm".
+  function parseCatStart(text) {
+    const out = {}, re = /((?:boys|girls)?\s*u\s*-?\s*\d{1,2})\s*[-:=@]?\s*(?:at\s*)?(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm)?/gi;
+    const str = String(text || '');
+    let m; while ((m = re.exec(str))) {
+      const g = (m[1].match(/boys|girls/i) || [''])[0], cat = (g ? g[0].toUpperCase() + g.slice(1).toLowerCase() + ' ' : '') + 'U' + Number(m[1].replace(/\D/g, ''));
+      let h = Number(m[2]); const mi = Number(m[3] || 0), ap = (m[4] || '').toLowerCase();
+      if (ap === 'pm' && h < 12) h += 12; else if (ap === 'am' && h === 12) h = 0; else if (!ap && h < 8) h += 12; // "2:00" = 2 pm
+      if (h < 24 && mi < 60) out[cat] = h * 60 + mi;
+    }
+    return out;
+  }
+  const fmtCatStart = (o) => Object.keys(o || {}).sort((a, b) => o[a] - o[b]).map((c) => c + ' ' + Math.floor(o[c] / 60) + ':' + String(o[c] % 60).padStart(2, '0')).join(', ');
+  const IST = 330 * 60000, DAY = 864e5;
+  // the moment a category starts today (or 0 if no start time is set)
+  const catAt = (s, cat, now) => { const v = s && s.catStart && cat != null ? s.catStart[cat] : null; return v == null ? 0 : Math.floor((now + IST) / DAY) * DAY - IST + v * 60000; };
 
   // Tentative times, by playing the rest of the day through:
   //  • each court is busy for matchMinutes from when its match started (or is called to start)
@@ -30,7 +46,7 @@
     const endOf = {}, pFree = {};
     const pk = (m, side) => pname(m[side]); // same kid in two categories (U13 + U15) = one person: never two matches at once
     const busyTill = (m, t) => ['a', 'b'].forEach((sd) => { if (m[sd]) { const k = pk(m, sd); pFree[k] = Math.max(pFree[k] || 0, t + REST); } });
-    (st.done || []).forEach((m) => { endOf[m.id] = m.endedAt || 0; busyTill(m, m.endedAt || 0); });
+    (st.done || []).forEach((m) => { endOf[m.id] = m.endedAt || 0; if (!m.wo) busyTill(m, m.endedAt || 0); }); // a bye / walkover isn't tiring
     st.matches.forEach((m) => {
       if (!isActive(m)) return;
       const end = m.status === 'live' ? Math.max(now, (m.startedAt || now) + D) : Math.max(now, m.callAt) + D;
@@ -41,13 +57,14 @@
     });
     const feed = {}; st.matches.forEach((m) => { if (m.nx) (feed[m.nx] = feed[m.nx] || []).push(m); });
     const readyAt = (m) => {
-      let t = now;
+      let t = Math.max(now, catAt(s, m.cat, now)); // not before the category's start time
       ['a', 'b'].forEach((sd) => { if (m[sd]) t = Math.max(t, pFree[pk(m, sd)] || 0); });
       (feed[m.id] || []).forEach((f) => { if (!m[f.ns || 'a']) t = Math.max(t, endOf[f.id] == null ? Infinity : endOf[f.id] + REST); });
       if (!known(m) && !(feed[m.id] || []).length && !(m.xa || m.xb)) t = Infinity; // nobody can fill it in
       return t;
     };
-    const waiting = st.matches.filter((m) => m.status === 'queued'), left = new Set(waiting);
+    st.matches.forEach((m) => { if (m.hold && m.status === 'queued') { m.time = null; m.timeLocked = false; } }); // not in the order of play yet
+    const waiting = st.matches.filter((m) => m.status === 'queued' && !m.hold), left = new Set(waiting);
     waiting.forEach((m) => { m.time = null; m.timeLocked = false; });
     while (left.size) {
       const k = earliest(), T = free[k];
@@ -63,7 +80,7 @@
       pick.time = Math.ceil(at / 60000) * 60000;
       endOf[pick.id] = at + D; free[k] = at + D; busyTill(pick, at + D);
     }
-    if (st.done && st.done.length > 300) st.done.length = 300;
+    if (st.done && st.done.length > 600) st.done.length = 600;
     return st;
   }
 
@@ -152,5 +169,5 @@
     }
     return p;
   }
-  return { normalize, toTree, toState, diff, stable, courtList, known, pname };
+  return { normalize, toTree, toState, diff, stable, courtList, known, pname, parseCatStart, fmtCatStart, catAt };
 });

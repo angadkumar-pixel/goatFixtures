@@ -24,9 +24,11 @@
 </header>
 
 
+<nav class="catbar" id="catBar" hidden aria-label="Categories"></nav>
+
 <main class="cols">
   <section class="col">
-    <h2>On the board <span id="boardCount"></span></h2>
+    <h2>On the board · top 10 <span id="boardCount"></span></h2>
     <ol class="list" id="boardList" data-zone="board"></ol>
   </section>
   <section class="col">
@@ -46,9 +48,17 @@
         <label>Minutes per match<input name="matchMinutes" type="number" min="5" max="120"></label>
         <label>Rest between a kid's matches (min)<input name="restMinutes" type="number" min="0" max="120"></label>
         <label>“Starts in” countdown (min)<input name="callMinutes" type="number" min="0" max="60"></label>
+        <label class="wide">Category start times<input name="catStart" placeholder="U11 9:30, U13 11:30, U15 2pm, U17 4pm"></label>
+        <label class="check wide"><input name="autoFill" type="checkbox"> Automatic: keep the top 10 filled by itself (oldest category first, only after its start time). Off = you add matches yourself.</label>
         <button class="primary" type="submit">Save</button>
       </form></details>
     <details class="done"><summary>Completed <span id="doneCount">0</span></summary><ol id="doneList"></ol></details>
+    <section class="nophone" id="noPhoneBox" hidden>
+      <h3>📵 No WhatsApp number <span id="noPhoneCount"></span></h3>
+      <p>These players won't get a message. Call them yourself, or add the number here and the message goes out automatically.</p>
+      <ol id="noPhoneList"></ol>
+      <details id="noPhoneMoreBox"><summary>Not in the top 10 yet <span id="noPhoneMoreCount"></span></summary><ol id="noPhoneMore"></ol></details>
+    </section>
     <section class="failbox" id="failBox" hidden>
       <h3>📞 Couldn't reach — call these players <span id="failCount"></span></h3>
       <p>WhatsApp couldn't get through even after retrying. Call them, then tap “Called ✓”.</p>
@@ -89,9 +99,16 @@
   </form>
 </dialog>
 
+<dialog id="catDlg" class="catdlg" aria-labelledby="catTitle">
+  <div class="sheet-head"><div><h3 id="catTitle"></h3><p id="catSub"></p></div><button type="button" class="ghost x" data-close aria-label="Close">✕</button></div>
+  <div class="cat-tools"><input id="catFind" type="search" placeholder="Find a player…" autocomplete="off"><button type="button" class="primary" id="catFill">Fill the top 10 from this category</button></div>
+  <div id="catBody" class="cat-body"></div>
+  <div class="dlg-actions"><button type="button" class="danger ghost small" id="catDel">Delete this category's draw</button><button type="button" data-close>Close</button></div>
+</dialog>
+
 <dialog id="bulkDlg" aria-labelledby="bulkTitle">
   <div class="sheet-head"><div><h3 id="bulkTitle">Bulk add matches</h3>
-    <p><b>Draw:</b> one row per player — <code>Category | Player | WhatsApp</code> (e.g. <code>U13 | Aarav Shah | 98765 43210</code>), in draw order. Byes, rounds and the order of play are worked out for you.<br><b>Or plain matches:</b> <code>Player A | WhatsApp | Player B | WhatsApp</code>, added to the end of the queue.</p></div>
+    <p><b>Bracket sheet (first round already paired):</b> <code>Category | Player 1 | WhatsApp 1 | Player 2 | WhatsApp 2</code>, one row per first-round match in bracket order; write <code>Bye</code> for a bye.<br><b>Or a player list:</b> one row per player — <code>Category | Player | WhatsApp</code> (e.g. <code>U13 | Aarav Shah | 98765 43210</code>), in draw order. Byes, rounds and the order of play are worked out for you.<br><b>Or plain matches:</b> <code>Player A | WhatsApp | Player B | WhatsApp</code>, added to the end of the queue.</p></div>
     <button type="button" class="ghost x" data-close aria-label="Close">✕</button></div>
   <a class="tpl-link" href="/draw-template.xlsx" download>⬇ Download the Excel template (Category | Player | WhatsApp)</a>
   <label class="file-pick">📄 Choose an Excel or CSV file<input type="file" id="bulkFile" accept=".xlsx,.csv,.txt"></label>

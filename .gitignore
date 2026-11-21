@@ -8,3 +8,7 @@ goat-live/data/
 **/.impeccable/
 node_modules/
 *.log
+
+# organiser files with phone numbers / print-outs
+GOAT-*.xlsx
+GOAT-*.pdf

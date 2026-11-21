@@ -128,7 +128,7 @@
     const tag = document.getElementById('fxTag');
     tag.className = 'tag' + (live.length ? ' live' : '');
     tag.textContent = live.length ? `${live.length} live now` : 'Fixtures';
-    const show = s.matches.slice(0, 4);
+    const show = s.matches.filter((m) => !m.hold || m.status !== 'queued').slice(0, 4);
     const html = show.map((m) =>
       `<li><span class="t ${m.status === 'live' ? 'l' : ''}">${m.status === 'live' ? 'LIVE' : m.status === 'called' ? 'CT ' + esc(m.court) : '~' + GoatLive.fmtTime(m.time)}</span><span>${esc(m.a)}<i>V</i>${esc(m.b)}</span></li>`).join('');
     if (html !== lastHtml) { lastHtml = html; document.getElementById('fxList').innerHTML = html; }

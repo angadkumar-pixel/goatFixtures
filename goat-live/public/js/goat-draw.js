@@ -10,7 +10,7 @@
   if (typeof module === 'object' && module.exports) module.exports = factory();
   else root.GoatDraw = factory();
 })(typeof self !== 'undefined' ? self : this, function () {
-  const ROUND_NAME = { R1: 'Round 1', R128: 'Round of 128', R64: 'Round of 64', R32: 'Round of 32', R16: 'Pre-Quarter Final', QF: 'Quarter Final', SF: 'Semi Final', F: 'Final' };
+  const ROUND_NAME = { R1: 'First Round', R128: 'Round of 128', R64: 'Round of 64', R32: 'Round of 32', R16: 'Pre-Quarter Final', QF: 'Quarter Final', SF: 'Semi Final', F: 'Final' };
   const bySize = (n) => (n === 2 ? 'F' : n === 4 ? 'SF' : n === 8 ? 'QF' : n === 16 ? 'R16' : 'R' + n);
 
   // n players in a draw of `size`: top half gets ceil(n/2), bottom half floor(n/2), all the way down.
@@ -48,6 +48,39 @@
     matches.forEach((m, i) => { m.no = i + 1; });
     matches.forEach((m) => { ['pa', 'pb'].forEach((k) => { if (m[k]) m[k] = 'Winner of #' + m[k].no; }); }); // m[k] held the feeder match
     return { cat, players: n, size, byes, rounds: round - 1, matches };
+  }
+
+  // A draw whose first round is already fixed (from the organiser's bracket sheet), in bracket order.
+  // pairs: [{a, phoneA, b, phoneB}] — "Bye" (or blank) on one side = that player goes straight through.
+  // Row 1 v row 2 winners meet in the next round, row 3 v row 4, … (so bracket 1's rows, then bracket 2's).
+  const isBye = (s) => !String(s || '').trim() || /^s*(bye|by|-+|—|x)s*$/i.test(String(s));
+  function drawPairs(cat, pairs) {
+    pairs = (pairs || []).filter(Boolean);
+    if (!pairs.length) throw new Error(cat + ': no matches');
+    let n = 1; while (n < pairs.length) n *= 2;
+    const hasBye = n > pairs.length || pairs.some((p) => isBye(p.a) || isBye(p.b));
+    const matches = []; let slots = [];
+    for (let i = 0; i < n; i++) {
+      const p = pairs[i] || {}, A = !isBye(p.a), B = !isBye(p.b);
+      if (!A && !B) { slots.push(null); continue; }
+      const m = { key: cat + ':1:' + i, cat, rd: hasBye ? 'R1' : bySize(2 * n), round: 1, a: A ? String(p.a).trim() : '', b: B ? String(p.b).trim() : '',
+        phoneA: A ? p.phoneA || '' : '', phoneB: B ? p.phoneB || '' : '', pa: A ? '' : 'Bye', pb: B ? '' : 'Bye', bye: A && B ? '' : A ? 'a' : 'b' };
+      matches.push(m); slots.push(m);
+    }
+    let round = 2;
+    while (slots.length > 1) {
+      const next = [];
+      for (let i = 0; i < slots.length; i += 2) {
+        const m = { key: cat + ':' + round + ':' + i, cat, rd: bySize(slots.length), round, a: '', b: '', pa: '', pb: '', xa: false, xb: false };
+        [[slots[i], 'a'], [slots[i + 1], 'b']].forEach(([f, side]) => { if (f) { f.nxKey = m.key; f.ns = side; m['p' + side] = f; } else m['x' + side] = true; });
+        matches.push(m); next.push(m);
+      }
+      slots = next; round++;
+    }
+    matches.forEach((m, i) => { m.no = i + 1; });
+    matches.forEach((m) => { ['pa', 'pb'].forEach((k) => { if (m[k] && typeof m[k] === 'object') m[k] = 'Winner of #' + m[k].no; }); });
+    const players = pairs.reduce((t, p) => t + (isBye(p.a) ? 0 : 1) + (isBye(p.b) ? 0 : 1), 0);
+    return { cat, players, size: 2 * n, byes: matches.filter((m) => m.bye).length, rounds: round - 1, matches };
   }
 
   // Order of play for several categories at once, worked out by playing the day through:
@@ -114,5 +147,5 @@
     d.matches.forEach((m) => { per[m.rd] = (per[m.rd] || 0) + 1; });
     return { cat: d.cat, players: d.players, size: d.size, byes: d.byes, r1: per.R1 || per[d.matches[0] && d.matches[0].rd] || 0, matches: d.matches.length, perRound: per };
   }
-  return { draw, order, summary, ROUND_NAME };
+  return { draw, drawPairs, isBye, order, summary, ROUND_NAME };
 });

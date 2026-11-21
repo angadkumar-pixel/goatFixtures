@@ -23,11 +23,11 @@
   document.documentElement.classList.toggle('lite', !!LITE);
   const setLite = (on) => { LITE = !!on; document.documentElement.classList.toggle('lite', LITE); if (L) { L.dive = LITE ? Math.min(L.dive, 1.6) : L.dive; L.focus = LITE ? Math.min(L.focus, 1.4) : L.focus; } };
   // wait for an animation to end (works on older browsers without Animation.finished)
-  const RN = { R1: 'Round 1', R64: 'Round of 64', R32: 'Round of 32', R16: 'Pre-Quarter', QF: 'Quarter Final', SF: 'Semi Final', F: 'FINAL' };
+  const RN = { R1: 'First Round', R64: 'Round of 64', R32: 'Round of 32', R16: 'Pre-Quarter', QF: 'Quarter Final', SF: 'Semi Final', F: 'FINAL' };
   // On the board: matches on court first, then the rest in the order they're expected to start.
   function boardOrder(s) {
     const on = s.matches.filter((m) => m.status === 'live' || m.status === 'called');
-    const wait = s.matches.filter((m) => m.status !== 'live' && m.status !== 'called').map((m, i) => [m, i])
+    const wait = s.matches.filter((m) => m.status !== 'live' && m.status !== 'called' && !m.hold).map((m, i) => [m, i])
       .sort((x, y) => (x[0].time || Infinity) - (y[0].time || Infinity) || x[1] - y[1]).map((x) => x[0]);
     return on.concat(wait);
   }
@@ -494,8 +494,8 @@
     $('liveCount').textContent = s.matches.filter((m) => m.status === 'live').length;
     const deck = s.matches.filter((m) => m.status === 'called').length;
     $('deck').textContent = deck ? `${deck} ON DECK` : '';
-    const extra = s.matches.length - SLOTS; // (in the order they're expected)
-    moreEl.textContent = extra > 0 ? `+${extra} more match${extra > 1 ? 'es' : ''} in queue` : s.matches.length ? '' : 'Fixtures coming up shortly';
+    const shown = boardOrder(s).length, extra = shown - SLOTS; // only the order of play (not matches still in their category list)
+    moreEl.textContent = extra > 0 ? `+${extra} more match${extra > 1 ? 'es' : ''} in queue` : shown ? '' : 'Fixtures coming up shortly';
   }
 
   // ── boot ──

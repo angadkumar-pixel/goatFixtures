@@ -68,6 +68,7 @@ function detect(prev, next, sent, now = Date.now()) {
   const events = [];
   next.matches.forEach((m, i) => {
     if (!m.a || !m.b) return;
+    if (m.hold && m.status === 'queued' && !(sent[m.id] && sent[m.id].next)) return; // not in the order of play (top 10) yet
     const s = sent[m.id] || {};
     const toldNext = !!s.next && !(s.later && s.later >= s.next); // a "you're next" is currently standing
     const p = before.get(m.id), startedNow = m.status === 'live' && p && p.status === 'queued'; // started straight from the queue just now
@@ -112,7 +113,7 @@ function plan(prev, next, { contacts, sent }, now = Date.now()) {
 function followUps(st, sent, before, after) {
   const out = [];
   st.matches.forEach((m, i) => {
-    if (!m.a || !m.b) return;
+    if (!m.a || !m.b || (m.hold && m.status === 'queued')) return;
     const o = before[m.id] || {}, n = after[m.id];
     if (!n) return;
     const s = sent[m.id] || {}, toldNext = !!s.next && !(s.later && s.later >= s.next);
@@ -129,7 +130,7 @@ function followUps(st, sent, before, after) {
 function stillRelevant(d, st) {
   const m = st.matches.find((x) => x.id === d.matchId);
   if (!m) return false;                                  // finished or deleted
-  if (d.kind === 'soon') return m.status === 'queued';   // already called / playing → no "coming up"
+  if (d.kind === 'soon') return m.status === 'queued' && !m.hold;   // already called / playing → no "coming up"
   if (d.kind === 'later') return m.status === 'queued';  // called again → a fresh "next" goes instead
   return true;
 }

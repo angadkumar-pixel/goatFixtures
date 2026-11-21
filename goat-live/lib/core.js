@@ -6,15 +6,18 @@ const shared = require('../public/js/goat-shared');
 const BOARD_SIZE = 10;
 const uid = () => crypto.randomBytes(5).toString('hex');
 const clean = (s, n = 60) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim().slice(0, n);
-const DEFAULT_SETTINGS = { notify: false, replayMinutes: 10, matchMinutes: 20, restMinutes: 15, courtNames: '', courts: 4, liveToTop: true, adSeconds: 8, callMinutes: 5, autoCall: true, autoStart: true };
+const DEFAULT_SETTINGS = { notify: false, replayMinutes: 10, matchMinutes: 20, restMinutes: 15, courtNames: '', courts: 4, liveToTop: true, adSeconds: 8, callMinutes: 5, autoCall: true, autoStart: true,
+  catStart: { U11: 570, U13: 690, U15: 840, U17: 960 }, autoFill: false }; // category start times (minutes after midnight, India time)
 
 // Knockout fields (draws only): cat 'U13' · rd 'QF' · no 5 (match number in its category) · pa/pb 'Winner of #3' while unknown
 // · nx/ns: the winner goes to match nx, side ns · xa/xb: nobody will come for that side (→ walkover) · wo: decided by walkover
-const KO = ['cat', 'rd', 'no', 'pa', 'pb', 'nx', 'ns'];
+const KO = ['cat', 'rd', 'no', 'pa', 'pb', 'nx', 'ns', 'bye'];
+// hold: true = in its category's list but NOT in the order of play (top 10) yet — the organiser adds it when wanted.
 function newMatch({ a, b, phoneA, phoneB, ...rest }) {
   const contact = phoneA || phoneB ? { contact: { a: clean(phoneA, 20), b: clean(phoneB, 20) } } : {};
   const ko = {}; KO.forEach((k) => { if (rest[k] != null && rest[k] !== '') ko[k] = k === 'no' ? Number(rest[k]) : clean(rest[k], 40); });
-  return { ...contact, ...ko, id: uid(), a: clean(a), b: clean(b), court: '', time: null, timeLocked: false, status: 'queued', ending: false, shownAt: null,
+  const extra = {}; if (rest.xa) extra.xa = true; if (rest.xb) extra.xb = true; if (rest.hold) extra.hold = true;
+  return { ...contact, ...ko, ...extra, id: uid(), a: clean(a), b: clean(b), court: '', time: null, timeLocked: false, status: 'queued', ending: false, shownAt: null,
     startedAt: null, endedAt: null, calledAt: null, callAt: null, ready: false, readyFor: null, readyCourt: '', readyAt: null, delay: 0 };
 }
 function newState({ sample = false } = {}) {
@@ -61,7 +64,8 @@ function ops(st) {
     const from = idxOf(id);
     if (from < 0) return;
     const [m] = st.matches.splice(from, 1);
-    to = Math.max(0, Math.min(st.matches.length, Number(to) | 0));
+    const inOrder = st.matches.filter((x) => !x.hold).length; // held matches always sit after the order of play
+    to = Math.max(0, Math.min(m.hold ? st.matches.length : inOrder, Number(to) | 0));
     st.matches.splice(to, 0, m);
   }
   const courtBusy = (court, exceptId) => !!court && st.matches.some((m) => isActive(m) && m.id !== exceptId && String(m.court) === String(court));
@@ -82,7 +86,7 @@ function ops(st) {
   const playable = (m, busy = busyNames(m.id)) => shared.known(m) && ![m.a, m.b].some((n) => busy.has(pn(n)));
   // the next match to put on a court: first in the order that can be played (rested players first)
   function pickNext(now, skip = () => false) {
-    const busy = busyNames(), q = st.matches.filter((x) => x.status === 'queued' && !skip(x) && playable(x, busy));
+    const busy = busyNames(), q = st.matches.filter((x) => x.status === 'queued' && !x.hold && !skip(x) && playable(x, busy));
     return q.find((x) => rested(x, now)) || q[0] || null;
   }
   // While match F is "finishing", the next queued match gets "BE READY · COURT n" on the board.
@@ -107,7 +111,7 @@ function ops(st) {
   // e.g. a match dragged above the called one takes over its court and countdown. Manual calls (pinned) stay put.
   function rebalance(now) {
     const busy = busyNames();
-    const waiting = st.matches.filter((x) => (x.status === 'queued' && playable(x, busy)) || (x.status === 'called' && !x.pinned));
+    const waiting = st.matches.filter((x) => (x.status === 'queued' && !x.hold && playable(x, busy)) || (x.status === 'called' && !x.pinned));
     const called = waiting.filter((x) => x.status === 'called');
     if (called.length) {
       const should = waiting.slice(0, called.length);
@@ -135,7 +139,20 @@ function ops(st) {
   }
   const notReady = (m) => { if (!shared.known(m)) return new Error(`Players not known yet (${m.pa || m.pb || 'waiting for an earlier match'}) — type the names in, or finish that match first`);
     const b = busyNames(m.id), who = [m.a, m.b].find((n) => b.has(pn(n))); return who ? new Error(`${who} is on court in another match right now`) : null; };
-  return { idxOf, liveCount, courtCap, courtNames, capError, moveTo, courtBusy, freeCourt, flagReady, unflagReady, startMatch, backToQueue, callMatch, onBoard, boardError, rebalance, pickNext, notReady };
+  // Put matches into the order of play: held matches whose players are known, oldest category first (its start time),
+  // then by match number (= round order) — so a category moves on to its quarter/semi/final before the next one floods the courts.
+  function fill(now, { cat = null, upto = BOARD_SIZE, timeGate = false } = {}) {
+    const s = st.settings, inOrder = () => st.matches.filter((x) => !x.hold).length;
+    const cand = st.matches.filter((x) => x.hold && x.status === 'queued' && shared.known(x) && (cat == null || x.cat === cat)
+      && (!timeGate || shared.catAt(s, x.cat, now) <= now + 30 * 60000))
+      .sort((x, y) => (shared.catAt(s, x.cat, now) - shared.catAt(s, y.cat, now)) || ((x.no || 0) - (y.no || 0)));
+    let added = 0;
+    for (const x of cand) { if (inOrder() >= upto) break; unhold(x); added++; }
+    return added;
+  }
+  function unhold(x) { x.hold = false; moveTo(x.id, st.matches.filter((y) => !y.hold && y !== x).length); }
+  function hold(x) { if (x.status !== 'queued') throw new Error('Only a waiting match can be taken out'); unflagReady(x); clearReady(x); x.hold = true; x.delay = 0; moveTo(x.id, st.matches.length); }
+  return { fill, unhold, hold, idxOf, liveCount, courtCap, courtNames, capError, moveTo, courtBusy, freeCourt, flagReady, unflagReady, startMatch, backToQueue, callMatch, onBoard, boardError, rebalance, pickNext, notReady };
 }
 
 // A knockout match is over → its winner goes into the next round (name + WhatsApp number). No winner (both absent /
@@ -172,14 +189,19 @@ function finish(st, m, winner, now, wo) {
 // Live matches, then matches counting down to start, always hold the top spots of the board (stable order otherwise).
 function activeOnTop(st) {
   const live = st.matches.filter((m) => m.status === 'live'), called = st.matches.filter((m) => m.status === 'called');
-  const rest = st.matches.filter((m) => m.status !== 'live' && m.status !== 'called');
-  st.matches = live.concat(called, rest);
+  const rest = st.matches.filter((m) => m.status !== 'live' && m.status !== 'called' && !m.hold);
+  const held = st.matches.filter((m) => m.status !== 'live' && m.status !== 'called' && m.hold);
+  st.matches = live.concat(called, rest, held);
 }
 
 // Apply one admin action to the state (mutates it). Returns extra info for the admin, or null. Throws on bad input.
 function apply(st, act, now = Date.now()) {
   const result = applyAction(st, act, now);
   activeOnTop(st);
+  if (st.settings.autoFill && act.type !== 'removeCat') { // automatic mode: keep the top 10 topped up
+    const o = ops(st);
+    if (o.fill(now, { timeGate: true })) { o.rebalance(now); activeOnTop(st); }
+  }
   return result;
 }
 function applyAction(st, act, now) {
@@ -207,15 +229,44 @@ function applyAction(st, act, now) {
       cats.forEach((c) => {
         const cat = clean(c.cat, 20);
         if (have.has(cat)) throw new Error(`${cat} already has a draw. Undo it (or delete its matches) first.`);
-        const players = (c.players || []).slice(0, 256).map((p) => ({ name: clean(p.name), phone: clean(p.phone, 20) }));
-        all.push(...D.draw(cat, players).matches);
+        if (Array.isArray(c.pairs)) { // first round fixed by the organiser (incl. byes)
+          const pairs = c.pairs.slice(0, 256).map((p) => ({ a: clean(p.a), b: clean(p.b), phoneA: clean(p.phoneA, 20), phoneB: clean(p.phoneB, 20) }));
+          all.push(...D.drawPairs(cat, pairs).matches);
+        } else {
+          const players = (c.players || []).slice(0, 256).map((p) => ({ name: clean(p.name), phone: clean(p.phone, 20) }));
+          all.push(...D.draw(cat, players).matches);
+        }
       });
-      const ordered = D.order(all, { courts: o.courtCap(), matchMin: st.settings.matchMinutes, restMin: st.settings.restMinutes ?? 15 });
+      if (s.catStart != null) { const cs = typeof s.catStart === 'string' ? shared.parseCatStart(s.catStart) : s.catStart; if (cs && Object.keys(cs).length) st.settings.catStart = Object.assign({}, st.settings.catStart, cs); }
+      // nothing goes into the order of play by itself: every match waits in its category list until the organiser adds it
+      const at = (x) => shared.catAt(st.settings, x.cat, now) || 0;
+      const ordered = all.slice().sort((x, y) => at(x) - at(y) || (x.cat < y.cat ? -1 : x.cat > y.cat ? 1 : 0) || x.no - y.no);
       const id = {}; ordered.forEach((x) => { id[x.key] = uid(); });
-      const made = ordered.map((x) => { const nm = newMatch(Object.assign({}, x, { nx: x.nxKey ? id[x.nxKey] : '' })); nm.id = id[x.key]; return nm; });
+      const made = ordered.map((x) => { const nm = newMatch(Object.assign({}, x, { nx: x.nxKey ? id[x.nxKey] : '', hold: true })); nm.id = id[x.key]; return nm; });
       st.matches.push(...made);
+      made.filter((x) => x.bye).forEach((x) => { finish(st, x, x.bye, now, true); }); // byes: through to the next round straight away
+      settle(st, now);
       o.rebalance(now);
-      return { drawn: made.length };
+      return { drawn: made.filter((x) => !x.bye).length, byes: made.filter((x) => x.bye).length };
+    }
+    case 'queue': { // add to / take out of the order of play (top 10)
+      const list = (Array.isArray(act.ids) ? act.ids : [act.id]).map((i) => st.matches.find((x) => x.id === i)).filter(Boolean);
+      if (!list.length) throw new Error('Match not found');
+      list.forEach((x) => { if (act.on === false) o.hold(x); else if (x.hold) { o.unhold(x); if (act.to != null) o.moveTo(x.id, act.to); } });
+      o.rebalance(now);
+      break;
+    }
+    case 'fill': { // "Fill the top 10 from this category"
+      const n = o.fill(now, { cat: act.cat ? clean(act.cat, 20) : null, upto: Math.max(1, Math.min(60, Number(act.upto) || BOARD_SIZE)) });
+      o.rebalance(now);
+      return { added: n };
+    }
+    case 'removeCat': {
+      const cat = clean(act.cat, 20); if (!cat) throw new Error('Which category?');
+      if (st.matches.some((x) => x.cat === cat && isActive(x))) throw new Error(cat + ' has a match on court — end it first');
+      const n = st.matches.filter((x) => x.cat === cat).length;
+      st.matches = st.matches.filter((x) => x.cat !== cat); st.done = st.done.filter((x) => x.cat !== cat);
+      return { removed: n };
     }
     case 'update': {
       if (!m) throw new Error('Match not found');
@@ -235,6 +286,7 @@ function applyAction(st, act, now) {
       if (!m) throw new Error('Match not found');
       if (act.live) {
         if (m.status === 'queued') { const e = o.notReady(m); if (e) throw e; }
+        if (m.hold) m.hold = false;
         if (m.status === 'queued' && o.liveCount(m.id) >= o.courtCap()) throw o.capError();
         if (act.court != null && act.court !== '') { if (o.courtBusy(clean(act.court, 12), m.id)) throw new Error('Court ' + clean(act.court, 12) + ' is busy'); m.court = clean(act.court, 12); }
         o.startMatch(m, now);
@@ -249,6 +301,7 @@ function applyAction(st, act, now) {
       if (act.court && o.courtBusy(clean(act.court, 12), m.id)) throw new Error('Court ' + clean(act.court, 12) + ' is busy');
       const court = act.court ? clean(act.court, 12) : (m.court && !o.courtBusy(m.court, m.id) ? m.court : o.freeCourt());
       if (!court) throw new Error('All courts are busy');
+      m.hold = false;
       o.callMatch(m, court, now, Number.isFinite(act.minutes) ? act.minutes : undefined, true);
       return { called: { a: m.a, b: m.b, court } };
     }
@@ -287,7 +340,8 @@ function applyAction(st, act, now) {
       const i = st.done.findIndex((x) => x.id === act.id);
       if (i < 0) throw new Error('Match not found');
       const [r] = st.done.splice(i, 1);
-      o.backToQueue(r); r.endedAt = null; r.shownAt = null; r.wo = false;
+      if (r.bye) throw new Error("A bye can't be restored");
+      o.backToQueue(r); r.endedAt = null; r.shownAt = null; r.wo = false; r.hold = false;
       const dep = r.nx && st.matches.find((x) => x.id === r.nx && x.status === 'queued');
       if (dep) { const sd = r.ns === 'b' ? 'b' : 'a'; dep[sd] = ''; dep['x' + sd] = false; } // the next round waits for it again
       st.matches.splice(o.liveCount(), 0, r);
@@ -317,6 +371,8 @@ function applyAction(st, act, now) {
         autoCall: s.autoCall ?? cur.autoCall,
         autoStart: s.autoStart ?? cur.autoStart,
         notify: s.notify ?? cur.notify,
+        catStart: s.catStart != null ? (typeof s.catStart === 'string' ? shared.parseCatStart(s.catStart) : s.catStart) : cur.catStart || {},
+        autoFill: !!(s.autoFill ?? cur.autoFill),
       };
       break;
     }

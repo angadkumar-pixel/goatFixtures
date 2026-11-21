@@ -57,6 +57,7 @@
     if (m.status === 'live') return `C${esc(m.court || '?')} · ${m.ending ? 'FINISHING' : 'LIVE'}`;
     if (m.status === 'called') return `C${esc(m.court)} · <span class="cd" data-at="${m.callAt}">${fmtLeft(m.callAt)}</span>`;
     if (m.ready) return `READY · C${esc(m.readyCourt || '?')}`;
+    if (m.hold && m.status === 'queued') return known(m) ? 'not in top 10' : 'waiting';
     if (!m.time) return 'waiting';
     return `~${GoatLive.fmtTime(m.time)}${m.delay ? ` <small>+${m.delay}′</small>` : ''}`; // tentative
   }
@@ -71,17 +72,20 @@
 
   function render() {
     if (!S || drag) return;
-    const n = N(), board = S.matches.slice(0, n).map((m, i) => [m, i]), queue = S.matches.slice(n);
+    const inOrder = S.matches.filter((m) => !m.hold); // held matches wait in their category list (top bar)
+    const n = N(), board = inOrder.slice(0, n).map((m, i) => [m, i]), queue = inOrder.slice(n);
     boardList.innerHTML = board.length ? board.map(([m, i]) => rowHTML(m, i)).join('') : '<li class="empty">No matches yet</li>';
     const QN = 10, shown = showAllQueue ? queue : queue.slice(0, QN); // next 10 fit on screen; the rest fold away
     queueList.innerHTML = queue.length
       ? shown.map((m, i) => rowHTML(m, i + n)).join('') + (queue.length > QN ? `<li class="more"><button type="button">${showAllQueue ? 'Show fewer' : `Show ${queue.length - QN} more`}</button></li>` : '')
-      : '<li class="empty">Queue empty — add below</li>';
+      : '<li class="empty">Nothing waiting — add matches from a category above</li>';
     $('#boardCount').textContent = `${S.matches.filter((m) => m.status === 'live').length}/${courts()} courts live`;
     $('#queueCount').textContent = queue.length ? `${queue.length} waiting` : '';
     const result = (m) => (m.cat ? tag(m) : '') + (m.wo ? '<small class="wo">W/O</small> ' : '') + (m.winner ? `${m.winner === 'a' ? '<b class="won">🏆 ' + esc(m.a) + '</b>' : esc(m.a)}<i>V</i>${m.winner === 'b' ? '<b class="won">🏆 ' + esc(m.b) + '</b>' : esc(m.b)}` : vs(m));
-    $('#doneList').innerHTML = S.done.slice(0, 100).map((m) => `<li><span>${result(m)}</span><button type="button" data-restore="${m.id}">Restore</button></li>`).join('');
-    $('#doneCount').textContent = S.done.length;
+    const doneReal = S.done.filter((m) => !m.bye);
+    $('#doneList').innerHTML = doneReal.slice(0, 100).map((m) => `<li><span>${result(m)}</span><button type="button" data-restore="${m.id}">Restore</button></li>`).join('');
+    $('#doneCount').textContent = doneReal.length;
+    renderCats();
     $('#undoBtn').disabled = !S.canUndo;
     if (prevIds) document.querySelectorAll('.m').forEach((el) => { if (!prevIds.has(el.dataset.id)) el.classList.add('new'); });
     prevIds = new Set(S.matches.map((m) => m.id));
@@ -97,6 +101,7 @@
     const pos = idx(m.id) + 1;
     const sub = m.status === 'live' ? `Court ${esc(m.court || '–')} · live for ${played(m) || '0m'}`
       : m.status === 'called' ? `Court ${esc(m.court)} · starts in <span class="cd" data-at="${m.callAt}">${fmtLeft(m.callAt)}</span>`
+      : m.hold ? 'Not in the top 10 yet — add it when you want it played'
       : `${m.ready ? `Be ready for Court ${esc(m.readyCourt || '–')} · ` : ''}#${pos} in order · ${m.time ? 'around ' + GoatLive.fmtTime(m.time) + ' (tentative)' : 'waiting for the earlier round'}`;
     $('#sheetSub').innerHTML = sub;
     const courtSel = (cur, name = 'court') => {
@@ -122,13 +127,14 @@
     } else {
       const full = onCourt() >= courts();
       const why = !known(m) ? `Waiting for ${[m.a ? '' : m.pa, m.b ? '' : m.pb].filter(Boolean).join(' and ')} — or type the names below` : full ? `All ${courts()} courts busy` : '';
-      const wo = known(m) ? `<div class="win-label">Player didn't turn up? (walkover)</div><div class="win-row"><button type="button" class="wo-btn" data-act="wo-a">${esc(m.a)} goes through</button><button type="button" class="wo-btn" data-act="wo-b">${esc(m.b)} goes through</button></div>` : '';
+      const wo = (known(m) ? `<div class="win-label">Already played? Enter the winner</div><div class="win-row"><button type="button" class="big end" data-act="res-a">🏆 ${esc(m.a)}</button><button type="button" class="big end" data-act="res-b">🏆 ${esc(m.b)}</button></div>` : '') + (known(m) ? `<div class="win-label">Player didn't turn up? (walkover)</div><div class="win-row"><button type="button" class="wo-btn" data-act="wo-a">${esc(m.a)} goes through</button><button type="button" class="wo-btn" data-act="wo-b">${esc(m.b)} goes through</button></div>` : '');
       h = `<div class="line"><label>Delay by</label><input type="number" inputmode="numeric" min="0" max="180" value="${m.delay || 0}" data-field="delay"><label>min</label>
           <button type="button" data-act="setdelay">Set</button></div>
         <div class="line"><label>Court</label>${courtSel(m.readyCourt || '', 'startCourt')}</div>
         ${why ? `<p class="why">${why}</p>` : ''}
         <button type="button" class="big go" data-act="call" ${why ? 'disabled' : ''}>📣 Call to court (${(S.settings && S.settings.callMinutes) || 5} min countdown)</button>
-        <button type="button" class="big start" data-act="start" ${why ? 'disabled' : ''}>● Start match now</button>${wo}`;
+        <button type="button" class="big start" data-act="start" ${why ? 'disabled' : ''}>● Start match now</button>
+        ${m.hold ? '<button type="button" class="big top10" data-act="top10">＋ Add to the top 10 (order of play)</button>' : '<button type="button" class="ghost small" data-act="untop">↩ Take out of the top 10</button>'}${wo}`;
     }
     $('#sheetActs').innerHTML = h;
     $('#delBtn').textContent = m.nx ? 'Cancel match (nobody goes through)' : 'Delete match';
@@ -159,6 +165,12 @@
       const c = $('#sheetActs [data-field=startCourt]').value;
       await act('live', c ? { id: m.id, live: true, court: c } : { id: m.id, live: true });
       sheet.close();
+    } else if (a === 'top10') { if (await act('queue', { id: m.id, on: true })) { toast('Added to the top 10'); sheet.close(); } }
+    else if (a === 'untop') { if (await act('queue', { id: m.id, on: false })) { toast('Taken out of the top 10 (back in its category)'); sheet.close(); } }
+    else if (a === 'res-a' || a === 'res-b') {
+      const w = a.slice(4), name = w === 'a' ? m.a : m.b;
+      if (!confirm(`Result: ${name} won ${m.a} v ${m.b}?${m.nx ? '\n\n' + name + ' goes into the next round.' : ''}`)) return;
+      sheet.close(); const r = await act('end', { id: m.id, winner: w }); if (r) toast(`${name} won`, { action: { label: 'Undo', fn: () => act('undo') }, ms: 8000 });
     } else if (a === 'setmins') setMins(m);
     else if (a === 'setdelay') setDelay(m);
   });
@@ -229,7 +241,42 @@
     b.disabled = !!err; b.textContent = err ? 'Add' : `Create the draw (${all.length} matches)`;
     $('#bulkPreview').innerHTML = err ? `<p class="bad">${esc(err)}</p>` : html;
   }
-  function showAny(r, note) { if (r && r.draw) showDraw(r.draw); else showBulk((r && r.items) || [], note); }
+  const lev = (a, b) => { const d = Array.from({ length: a.length + 1 }, (_, i) => [i]); for (let j = 1; j <= b.length; j++) d[0][j] = j;
+    for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); return d[a.length][b.length]; };
+  const digits = (p) => String(p || '').replace(/\D/g, '').slice(-10);
+  // Same kid spelt two ways / two kids with one name: the schedule keeps a kid off two courts only when the names match exactly.
+  function kidWarnings(cats) {
+    const all = []; const pn = GoatShared.pname;
+    cats.forEach((c) => (c.pairs || []).forEach((p, i) => [['a', 'phoneA'], ['b', 'phoneB']].forEach(([k, ph]) => { if (!GoatDraw.isBye(p[k])) all.push({ cat: c.cat, name: p[k], k: pn(p[k]), ph: digits(p[ph]), row: i + 1 }); })));
+    const out = [], seen = new Set();
+    for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) {
+      const x = all[i], y = all[j], key = [x.cat, x.name, y.cat, y.name].join('|'); if (seen.has(key)) continue;
+      if (x.k === y.k && x.cat === y.cat) { seen.add(key); out.push(`<b>${esc(x.name)}</b> is in ${esc(x.cat)} twice (row ${x.row} and row ${y.row}) — same kid?`); }
+      else if (x.k === y.k && x.ph && y.ph && x.ph !== y.ph) { seen.add(key); out.push(`<b>${esc(x.name)}</b> (${esc(x.cat)}) and <b>${esc(y.name)}</b> (${esc(y.cat)}) have different numbers — if they are different kids, add a surname, otherwise the schedule treats them as one kid.`); }
+      else if (x.k !== y.k && x.ph && x.ph === y.ph && x.cat !== y.cat && lev(x.k, y.k) <= (Math.min(x.k.length, y.k.length) >= 7 ? 2 : 1)) { seen.add(key); out.push(`<b>${esc(x.name)}</b> (${esc(x.cat)}) and <b>${esc(y.name)}</b> (${esc(y.cat)}) share a number — same kid? Use one spelling so their matches never clash.`); }
+    }
+    return out;
+  }
+  function showPairs(cats) {
+    bulkItems = []; bulkDraw = cats;
+    let html = '', total = 0, err = '';
+    try {
+      const ds = cats.map((c) => GoatDraw.drawPairs(c.cat, c.pairs));
+      const cs = (S && S.settings && S.settings.catStart) || {}, hm = (v) => (v == null ? '–' : Math.floor(v / 60) + ':' + String(v % 60).padStart(2, '0'));
+      html += '<table class="draw-sum"><tr><th>Category</th><th>Players</th><th>First-round matches</th><th>Byes</th><th>Matches to play</th><th>Starts</th></tr>' + ds.map((d) => {
+        const r1 = d.matches.filter((m) => m.round === 1 && !m.bye).length, play = d.matches.filter((m) => !m.bye).length; total += play;
+        return `<tr><td><b>${esc(d.cat)}</b></td><td>${d.players}</td><td>${r1}</td><td>${d.byes || '–'}</td><td>${play}</td><td>${hm(cs[d.cat])}</td></tr>`; }).join('') + '</table>';
+      html += `<p class="draw-note">${total} matches in all. Nothing goes on the board by itself: open a category (buttons at the top) and add matches to the top 10 when you want them played.</p>`;
+      const warn = kidWarnings(cats);
+      if (warn.length) html += `<div class="draw-warn"><b>Check these names:</b><ul>${warn.map((w) => '<li>' + w + '</li>').join('')}</ul></div>`;
+      html += ds.map((d) => `<details><summary>${esc(d.cat)} — first round</summary><ol class="draw-r1">` + d.matches.filter((m) => m.round === 1).map((m) =>
+        `<li>#${m.no} ${esc(m.a || 'Bye')} <i>V</i> ${esc(m.b || 'Bye')}${m.bye ? ' <small>→ ' + esc(m[m.bye]) + ' goes through</small>' : ''}</li>`).join('') + '</ol></details>').join('');
+    } catch (e) { err = e.message; }
+    const b = $('#bulkAdd');
+    b.disabled = !!err; b.textContent = err ? 'Add' : `Create the draw (${total} matches)`;
+    $('#bulkPreview').innerHTML = err ? `<p class="bad">${esc(err)}</p>` : html;
+  }
+  function showAny(r, note) { if (r && r.draw && r.draw.some((c) => c.pairs)) return showPairs(r.draw); if (r && r.draw) showDraw(r.draw); else showBulk((r && r.items) || [], note); }
   function showBulk(items, note) {
     bulkItems = items; bulkDraw = null;
     const b = $('#bulkAdd');
@@ -248,7 +295,7 @@
   $('#bulkAdd').onclick = async () => {
     if (bulkDraw) {
       const r = await act('draw', { cats: bulkDraw });
-      if (r) { toast(`Draw created: ${r.drawn} matches`); bulkDlg.close(); }
+      if (r) { toast(`Draw created: ${r.drawn} matches${r.byes ? ` (+ ${r.byes} byes, already through)` : ''}`); bulkDlg.close(); }
       return;
     }
     if (!bulkItems.length) return;
@@ -327,7 +374,8 @@
       d.target = +row.dataset.i + (before ? 0 : 1);
     } else if (lst) {
       lst.classList.add('drop-end');
-      d.target = lst === boardList ? Math.min(N(), S.matches.length) : S.matches.length;
+      const len = S.matches.filter((m) => !m.hold).length;
+      d.target = lst === boardList ? Math.min(N(), len) : len;
     } else d.target = null;
     if (e.clientY < 60) scrollBy(0, -12); else if (e.clientY > innerHeight - 60) scrollBy(0, 12);
   }
@@ -359,18 +407,118 @@
   function fillSettings() {
     if (!S) return;
     const s = S.settings || {}, f = $('#setForm'), list = GoatShared.courtList(s);
-    $('#setSum').textContent = `Courts ${list.join(', ')} · ${s.matchMinutes || 20} min · rest ${s.restMinutes ?? 15} min`;
+    $('#setSum').textContent = `Courts ${list.join(', ')} · ${s.matchMinutes || 20} min · rest ${s.restMinutes ?? 15} min${s.autoFill ? ' · AUTO top 10' : ''}`;
     if (f.contains(document.activeElement)) return;
-    f.courtNames.value = list.join(', '); f.matchMinutes.value = s.matchMinutes || 20; f.restMinutes.value = s.restMinutes ?? 15; f.callMinutes.value = s.callMinutes ?? 5;
+    f.courtNames.value = list.join(', '); f.matchMinutes.value = s.matchMinutes || 20; f.restMinutes.value = s.restMinutes ?? 15; f.callMinutes.value = s.callMinutes ?? 5; f.catStart.value = GoatShared.fmtCatStart(s.catStart); f.autoFill.checked = !!s.autoFill;
   }
   $('#setForm').addEventListener('submit', async (e) => {
     e.preventDefault(); const f = e.target;
     const names = f.courtNames.value.split(/[,\s]+/).filter(Boolean);
     if (!names.length) return toast('Enter the court numbers, e.g. 1, 2, 3, 5', { error: true });
-    if (await act('settings', { settings: { courtNames: names.join(', '), matchMinutes: +f.matchMinutes.value, restMinutes: +f.restMinutes.value, callMinutes: +f.callMinutes.value } })) { toast('Saved'); f.querySelector('button').blur(); }
+    if (await act('settings', { settings: { courtNames: names.join(', '), matchMinutes: +f.matchMinutes.value, restMinutes: +f.restMinutes.value, callMinutes: +f.callMinutes.value, catStart: f.catStart.value, autoFill: f.autoFill.checked } })) { toast('Saved'); f.querySelector('button').blur(); }
   });
   $('#undoBtn').onclick = () => act('undo');
   $('#logoutBtn').onclick = async () => { await fetch('/api/logout', { method: 'POST' }); location.href = '/admin'; };
+
+  // ── categories: a button per category → all its matches by round; "+ Top 10" puts one into the order of play ──
+  const catDlg = $('#catDlg'); let openCat = null; const RORD = ['R1', 'R128', 'R64', 'R32', 'R16', 'QF', 'SF', 'F'];
+  const hm = (v) => (v == null ? '' : Math.floor(v / 60) + ':' + String(v % 60).padStart(2, '0'));
+  function catList() {
+    const cs = (S.settings && S.settings.catStart) || {}, set = new Set();
+    S.matches.concat(S.done).forEach((m) => m.cat && set.add(m.cat));
+    return [...set].sort((a, b) => (cs[a] ?? 1e9) - (cs[b] ?? 1e9) || (a < b ? -1 : 1));
+  }
+  function renderCats() {
+    const cats = catList(), cs = (S.settings && S.settings.catStart) || {}, bar = $('#catBar');
+    bar.hidden = !cats.length;
+    bar.innerHTML = cats.map((c) => {
+      const left = S.matches.filter((m) => m.cat === c).length, live = S.matches.filter((m) => m.cat === c && active(m)).length;
+      const ready = S.matches.filter((m) => m.cat === c && m.hold && m.status === 'queued' && known(m)).length;
+      return `<button type="button" data-cat="${esc(c)}" class="${openCat === c ? 'on' : ''}"><b>${esc(c)}</b><small>${cs[c] != null ? hm(cs[c]) + ' · ' : ''}${left ? left + ' to play' : 'done ✓'}${live ? ' · ' + live + ' on court' : ''}${ready ? ' · ' + ready + ' ready' : ''}</small></button>`;
+    }).join('');
+    if (catDlg.open) renderCatDlg();
+  }
+  $('#catBar').addEventListener('click', (e) => { const b = e.target.closest('[data-cat]'); if (!b) return; openCat = b.dataset.cat; $('#catFind').value = ''; renderCatDlg(); if (!catDlg.open) catDlg.showModal(); renderCats(); });
+  // one match card in the bracket: #no · status, both players (winner in gold), one-tap "+ Top 10"
+  function card(m, done) {
+    const ord = S.matches.filter((x) => !x.hold);
+    let chip = '', cls = '', foot = '';
+    if (done) { cls = m.bye ? 'done bye' : 'done';
+      chip = m.bye ? 'BYE' : m.winner ? (m.wo ? 'W/O' : 'DONE ✓') : 'NO RESULT';
+    } else if (m.status === 'live') { cls = 'live'; chip = `LIVE · C${esc(m.court)}`; }
+    else if (m.status === 'called') { cls = 'live'; chip = `C${esc(m.court)} · <span class="cd" data-at="${m.callAt}">${fmtLeft(m.callAt)}</span>`; }
+    else if (!m.hold) { cls = 'in'; chip = `TOP 10 · #${ord.indexOf(m) + 1}`; foot = `<button type="button" class="mini" data-q="off" data-id="${m.id}">− Take out</button>`; }
+    else if (known(m)) { cls = 'ready'; foot = `<button type="button" class="mini add" data-q="on" data-id="${m.id}">＋ Top 10</button>`; }
+    else chip = 'WAITING';
+    const p = (k) => {
+      const won = done && m.winner === k, lost = done && m.winner && m.winner !== k;
+      return `<div class="bp ${won ? 'w' : ''} ${lost ? 'l' : ''}">${won ? '🏆 ' : ''}${m[k] ? esc(m[k]) : `<em class="tbd">${esc(m['p' + k] || (m['x' + k] ? 'nobody' : 'TBA'))}</em>`}</div>`;
+    };
+    return `<div class="bm ${cls}" data-id="${done ? '' : m.id}" data-find="${esc(GoatShared.pname((m.a || '') + ' ' + (m.b || '')))}" tabindex="0">
+      <div class="bh"><span>#${m.no}</span>${chip ? `<span class="chip">${chip}</span>` : ''}</div>${p('a')}${p('b')}${foot ? `<div class="bf">${foot}</div>` : ''}</div>`;
+  }
+  // The category as a real bracket: one column per round, match 1 above match 2, winners flow to the right.
+  function renderCatDlg() {
+    const c = openCat; if (!c) return;
+    const cs = (S.settings && S.settings.catStart) || {};
+    const ms = S.matches.filter((m) => m.cat === c).map((m) => [m, false]).concat(S.done.filter((m) => m.cat === c).map((m) => [m, true]));
+    if (!ms.length) { catDlg.close(); return; }
+    $('#catTitle').textContent = c + (cs[c] != null ? ' · starts ' + hm(cs[c]) : '');
+    const left = ms.filter(([, d]) => !d).length, inTop = ms.filter(([m, d]) => !d && !m.hold).length;
+    $('#catSub').textContent = `${left} matches to play · ${inTop} in the top 10 · tap a match: start it, enter the winner, walkover, change names or numbers`;
+    const body = $('#catBody'), sx = body.scrollLeft, sy = body.scrollTop;
+    const rds = [...new Set(ms.map(([m]) => m.rd))].sort((a, b) => RORD.indexOf(a) - RORD.indexOf(b));
+    body.innerHTML = `<div class="bracket">${rds.map((rd) => {
+      const list = ms.filter(([m]) => m.rd === rd).sort((x, y) => x[0].no - y[0].no);
+      const todo = list.filter(([, d]) => !d).length;
+      return `<section class="rcol"><h4>${esc(RN[rd] || rd)}<small>${todo ? todo + ' to play' : 'done ✓'}</small></h4><div class="rlist">${list.map(([m, d]) => card(m, d)).join('')}</div></section>`;
+    }).join('')}</div>`;
+    body.scrollLeft = sx; body.scrollTop = sy;
+    applyFind();
+  }
+  function applyFind() {
+    const q = GoatShared.pname($('#catFind').value);
+    catDlg.querySelectorAll('.bm').forEach((el) => el.classList.toggle('hit', !!q && el.dataset.find.includes(q)));
+    catDlg.querySelector('.bracket') && catDlg.querySelector('.bracket').classList.toggle('finding', !!q);
+    const first = q && catDlg.querySelector('.bm.hit'); if (first) first.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' });
+  }
+  $('#catFind').addEventListener('input', applyFind);
+  $('#catBody').addEventListener('click', async (e) => {
+    const q = e.target.closest('[data-q]');
+    if (q) { e.stopPropagation(); q.disabled = true; const r = await act('queue', { id: q.dataset.id, on: q.dataset.q === 'on' }); if (r) toast(q.dataset.q === 'on' ? 'Added to the top 10' : 'Taken out of the top 10'); return; }
+    const el = e.target.closest('.bm[data-id]'); if (el && el.dataset.id) openSheet(el.dataset.id);
+  });
+  $('#catBody').addEventListener('keydown', (e) => { if (e.key === 'Enter') { const el = e.target.closest('.bm[data-id]'); if (el && el.dataset.id) openSheet(el.dataset.id); } });
+  $('#catFill').onclick = async () => { const r = await act('fill', { cat: openCat }); if (r) toast(r.added ? `${r.added} ${openCat} match${r.added > 1 ? 'es' : ''} added to the top 10` : `No more ${openCat} matches ready (players not known yet), or the top 10 is full`); };
+  $('#catDel').onclick = () => { if (confirm(`Delete the whole ${openCat} draw (all its matches and results)?\n\nOnly do this to import it again. You can Undo right after.`)) act('removeCat', { cat: openCat }).then((r) => { if (r) { toast(`${openCat} draw deleted`, { action: { label: 'Undo', fn: () => act('undo') }, ms: 9000 }); catDlg.close(); } }); };
+  catDlg.querySelectorAll('[data-close]').forEach((b) => (b.onclick = () => catDlg.close()));
+  catDlg.addEventListener('close', () => { openCat = null; renderCats(); });
+
+  // ── players without a WhatsApp number (byes ignored) ──
+  function renderNoPhone() {
+    if (!S || $('#noPhoneBox').contains(document.activeElement)) return;
+    const rows = [], more = [];
+    S.matches.forEach((m) => ['a', 'b'].forEach((k) => {
+      if (!m[k]) return;
+      const c = contacts[m.id] || {}; if (String(c[k] || '').trim() && !badPhone(c[k])) return;
+      const why = String(c[k] || '').trim() ? `“${esc(c[k])}” is not a valid number` : 'no number';
+      const li = `<li><div><b>${esc(m[k])}</b> · ${m.cat ? esc(m.cat) + ' ' + esc(RN[m.rd] || m.rd) + ' #' + m.no : esc(m.a) + ' v ' + esc(m.b)} <small>${why}</small></div>
+        <form class="np" data-id="${m.id}" data-side="${k}"><input type="tel" maxlength="20" placeholder="Add WhatsApp no."><button type="submit">Save</button></form></li>`;
+      (m.hold && m.status === 'queued' ? more : rows).push(li);
+    }));
+    $('#noPhoneBox').hidden = !rows.length && !more.length;
+    $('#noPhoneCount').textContent = rows.length || '';
+    $('#noPhoneList').innerHTML = rows.join('') || '<li class="ok">Everyone in the top 10 has a number ✓</li>';
+    $('#noPhoneMoreBox').hidden = !more.length; $('#noPhoneMoreCount').textContent = more.length; $('#noPhoneMore').innerHTML = more.join('');
+  }
+  $('#noPhoneBox').addEventListener('submit', async (e) => {
+    e.preventDefault(); const f = e.target.closest('form.np'); if (!f) return;
+    const v = f.querySelector('input').value, id = f.dataset.id, k = f.dataset.side;
+    if (!v.trim() || badPhone(v)) return toast('Enter a 10-digit mobile number, e.g. 98765 43210', { error: true });
+    const c = Object.assign({ a: '', b: '' }, contacts[id] || {}); c[k] = v.trim();
+    f.querySelector('input').blur();
+    if (await act('update', { id, phoneA: c.a, phoneB: c.b })) { contacts[id] = c; toast('Number saved — WhatsApp will go to them'); renderNoPhone(); }
+  });
 
   // ── WhatsApp: phone numbers + message log (admin only) ──
   let contacts = {}, wa = { provider: 'none', ready: false }, waLog = [], waFailed = [], waPending = 0, waHook = { url: '', last: null }, adminT = null;
@@ -382,7 +530,7 @@
         if (!r.ok) return;
         const j = await r.json();
         contacts = j.contacts || {}; wa = j.whatsapp || wa; waLog = j.log || []; waFailed = j.failed || []; waPending = j.pending || 0; waHook = { url: j.webhookUrl || '', last: j.lastReport || null, info: j.hook || null, ok: j.hookOk || null };
-        renderWA();
+        renderWA(); renderNoPhone();
       } catch {}
     }, delay);
   }
@@ -490,7 +638,7 @@
     refreshAdminData();
   }, 20000);
 
-  GoatLive.connect((s) => { S = s; render(); renderWA(); fillSettings(); }, (ok) => { $('#conn').className = 'conn ' + (ok ? 'ok' : 'bad'); });
+  GoatLive.connect((s) => { S = s; render(); renderWA(); fillSettings(); renderNoPhone(); }, (ok) => { $('#conn').className = 'conn ' + (ok ? 'ok' : 'bad'); });
   setInterval(() => document.querySelectorAll('.cd[data-at]').forEach((el) => { el.textContent = fmtLeft(+el.dataset.at); }), 500);
   setInterval(() => { if (!sheet.open) render(); }, 30000);
 })();
