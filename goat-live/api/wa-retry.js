@@ -27,7 +27,11 @@ async function kick(req, res) {
     if (!notifyOn) return json(res, 200, { ok: true, skipped: 'messages off' });
     if (last && Date.now() - last < 20000) return json(res, 200, { ok: true, skipped: 'recent' });
     await fire.patch('goat_private', { kick_at: Date.now() });
-    const r = await outbox.processQueue(null, 15000);
-    json(res, 200, { ok: true, pending: r.pending || 0 });
+    // catch up: any top-10 match due a message that never got one (messages were OFF, or it became due as time passed)
+    const [{ st }, contacts] = await Promise.all([fire.load(), fire.get('goat_private/contacts')]);
+    const c = contacts || {};
+    const caught = await outbox.afterChange(st, st, { before: c, after: c, changed: false });
+    const r = await outbox.processQueue(null, 12000);
+    json(res, 200, { ok: true, caughtUp: caught.queued || 0, pending: r.pending || 0 });
   } catch (e) { json(res, 200, { ok: false }); }
 }

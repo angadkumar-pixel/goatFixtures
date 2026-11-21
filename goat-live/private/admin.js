@@ -711,7 +711,7 @@ The result is undone and the match waits to be played again${m.nx ? '; the next-
   // so the open Control Room does this every 20 s). Also refreshes the panel.
   setInterval(async () => {
     if (S && S.settings && S.settings.notify) {
-      try { await fetch('/api/wa-retry', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); } catch {}
+      try { await fetch('/api/wa-retry', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); fetch('/api/wa-kick', { method: 'POST' }).catch(() => {}); } catch {}
     }
     refreshAdminData();
   }, 20000);
