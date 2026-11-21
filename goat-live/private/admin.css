@@ -304,3 +304,6 @@ dialog.catdlg[open] { display: flex; }
 #sheet .swap-row span { color: var(--gold); font-weight: 700; }
 @media (max-width: 640px) { #sheet .swap-row { grid-template-columns: minmax(0, 1fr); } #sheet .swap-row span { justify-self: center; } }
 .bm .bf { display: grid; gap: 4px; }
+.bm.nowin { opacity: 1; border-color: rgba(255,45,70,.7); cursor: default; }
+.bm.nowin .chip { background: rgba(255,45,70,.85); color: #fff; }
+.nowin-tag { color: #ff8a98; font: 700 10px Inter, sans-serif; letter-spacing: .5px; margin-right: 4px; }

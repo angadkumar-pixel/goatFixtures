@@ -82,7 +82,7 @@
       : '<li class="empty">Nothing waiting — add matches from a category above</li>';
     $('#boardCount').textContent = `${S.matches.filter((m) => m.status === 'live').length}/${courts()} courts live`;
     $('#queueCount').textContent = queue.length ? `${queue.length} waiting` : '';
-    const result = (m) => (m.cat ? tag(m) : '') + (m.wo ? '<small class="wo">W/O</small> ' : '') + (m.winner ? `${m.winner === 'a' ? '<b class="won">🏆 ' + esc(m.a) + '</b>' : esc(m.a)}<i>V</i>${m.winner === 'b' ? '<b class="won">🏆 ' + esc(m.b) + '</b>' : esc(m.b)}` : vs(m));
+    const result = (m) => (m.cat ? tag(m) : '') + (m.wo ? '<small class="wo">W/O</small> ' : '') + (!m.winner ? '<small class="nowin-tag">DONE · WINNER NOT CHOSEN</small> ' : '') + (m.winner ? `${m.winner === 'a' ? '<b class="won">🏆 ' + esc(m.a) + '</b>' : esc(m.a)}<i>V</i>${m.winner === 'b' ? '<b class="won">🏆 ' + esc(m.b) + '</b>' : esc(m.b)}` : vs(m));
     const doneReal = S.done.filter((m) => !m.bye);
     $('#doneList').innerHTML = doneReal.slice(0, 100).map((m) => `<li><span>${result(m)}</span><button type="button" data-restore="${m.id}">Restore</button></li>`).join('');
     $('#doneCount').textContent = doneReal.length;
@@ -165,7 +165,7 @@
     const m = find(openId); if (!m) return;
     const a = b.dataset.act;
     if (a === 'ending') act('ending', { id: m.id, on: !m.ending });
-    else if (a === 'end') { if (!confirm(`End ${m.a} v ${m.b} WITHOUT a result?${m.nx ? '\n\nNobody goes into the next round from this match.' : ''}
+    else if (a === 'end') { if (!confirm(`End ${m.a} v ${m.b} WITHOUT a result?${m.nx ? '\n\nThe next-round match waits until you choose the winner (bracket card: DONE · WINNER NOT CHOSEN).' : ''}
 
 (You can Restore it from Completed.)`)) return; sheet.close(); endMatch(m); }
     else if (a === 'win-a' || a === 'win-b') {
@@ -490,8 +490,9 @@ ${m.a} v ${m.b}${m.nx ? '\n\n' + name + ' goes into the next round.' : ''}
     const ord = S.matches.filter((x) => !x.hold);
     let chip = '', cls = '', foot = '';
     if (m.status === 'bye') { cls = 'in bye'; chip = 'ON SCREEN'; foot = `<button type="button" class="mini" data-bye="off" data-id="${m.id}">Take off screen</button><button type="button" class="mini add" data-fillbye="${m.id}">＋ Add player</button>`; }
-    else if (done) { cls = m.bye ? 'done bye' : 'done'; foot = m.bye ? `<button type="button" class="mini" data-bye="on" data-id="${m.id}">📺 Show on screen</button><button type="button" class="mini add" data-fillbye="${m.id}">＋ Add player (replace bye)</button>` : `<button type="button" class="mini" data-restore-card="${m.id}">↶ Restore</button>`;
-      chip = m.bye ? 'BYE' : m.winner ? (m.wo ? 'W/O' : 'DONE ✓') : 'NO RESULT';
+    else if (done) { cls = m.bye ? 'done bye' : 'done'; foot = m.bye ? `<button type="button" class="mini" data-bye="on" data-id="${m.id}">📺 Show on screen</button><button type="button" class="mini add" data-fillbye="${m.id}">＋ Add player (replace bye)</button>`
+        : (!m.winner ? ['a', 'b'].filter((k) => m[k]).map((k) => `<button type="button" class="mini add" data-setwin="${m.id}|${k}">🏆 ${esc(m[k])} won</button>`).join('') : '') + `<button type="button" class="mini" data-restore-card="${m.id}">↶ Restore</button>`;
+      chip = m.bye ? 'BYE' : m.winner ? (m.wo ? 'W/O' : 'DONE ✓') : 'DONE · WINNER NOT CHOSEN'; if (!m.bye && !m.winner) cls += ' nowin';
     } else if (m.status === 'live') { cls = 'live'; chip = `LIVE · C${esc(m.court)}`; }
     else if (m.status === 'called') { cls = 'live'; chip = `C${esc(m.court)} · <span class="cd" data-at="${m.callAt}">${fmtLeft(m.callAt)}</span>`; }
     else if (!m.hold) { cls = 'in'; chip = `TOP 10 · #${ord.indexOf(m) + 1}`; foot = `<button type="button" class="mini" data-q="off" data-id="${m.id}">− Take out</button>`; }
@@ -531,6 +532,14 @@ ${m.a} v ${m.b}${m.nx ? '\n\n' + name + ' goes into the next round.' : ''}
   }
   $('#catFind').addEventListener('input', applyFind);
   $('#catBody').addEventListener('click', async (e) => {
+    const sw = e.target.closest('[data-setwin]');
+    if (sw) {
+      e.stopPropagation();
+      const [id, k] = sw.dataset.setwin.split('|'), m = S.done.find((x) => x.id === id); if (!m) return;
+      if (!confirm(`Confirm result: 🏆 ${m[k]} won ${m.a} v ${m.b}${m.nx ? '\n\n' + m[k] + ' goes into the next round.' : ''}`)) return;
+      sw.disabled = true; if (await act('setWinner', { id, winner: k })) toast(`${m[k]} won — saved in the bracket`, { action: { label: 'Undo', fn: () => act('undo') }, ms: 8000 });
+      return;
+    }
     const fb = e.target.closest('[data-fillbye]');
     if (fb) {
       e.stopPropagation();

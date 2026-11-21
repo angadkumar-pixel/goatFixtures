@@ -68,7 +68,11 @@ function detect(prev, next, sent, now = Date.now()) {
   const events = [];
   next.matches.forEach((m, i) => {
     if (!m.a || !m.b) return;
-    if (m.hold && m.status === 'queued' && !(sent[m.id] && sent[m.id].next)) return; // not in the order of play (top 10) yet
+    if (m.hold && m.status === 'queued') { // not in the order of play (top 10)
+      const s0 = sent[m.id] || {}, last = Math.max(s0.soon || 0, s0.next || 0), ph = before.get(m.id);
+      if (ph && !ph.hold && last && !(s0.later && s0.later >= last)) events.push({ kind: 'later', m, out: true }); // taken out after a message → "moved later"
+      return;
+    }
     const p0 = before.get(m.id), swapped = p0 && p0.a && p0.b && (p0.a !== m.a || p0.b !== m.b); // a player was changed → messages start fresh
     const s = swapped ? {} : sent[m.id] || {};
     const toldNext = !!s.next && !(s.later && s.later >= s.next); // a "you're next" is currently standing
@@ -78,7 +82,7 @@ function detect(prev, next, sent, now = Date.now()) {
     const moved = toldNext && s.court != null && courtNow && String(s.court) !== courtNow && (m.status === 'called' || beReady); // court changed after “you're next” → tell them the new court
     if (((m.status === 'called' || startedNow || beReady) && !toldNext) || moved) events.push({ kind: 'next', m });
     else if (m.status === 'queued' && !m.ready && toldNext) events.push({ kind: 'later', m });
-    else if (m.status === 'queued' && soonDue(m, i, now) && !s.soon && !s.next) events.push({ kind: 'soon', m });
+    else if (m.status === 'queued' && soonDue(m, i, now) && (s.out || (!s.soon && !s.next))) events.push({ kind: 'soon', m }); // (back in the top 10 after "moved later" → coming up again)
   });
   return events;
 }
@@ -105,8 +109,8 @@ function makeDelivery(m, kind, side, round, contacts) {
 // Plan the messages for a change. Returns the "sent" flags to save and the deliveries to queue.
 function plan(prev, next, { contacts, sent }, now = Date.now()) {
   const sentPatch = {}, deliveries = [];
-  for (const { kind, m } of detect(prev, next, sent, now)) {
-    sentPatch[m.id] = Object.assign({}, sent[m.id] || {}, sentPatch[m.id] || {}, { [kind]: now }, kind === 'next' ? { court: String(m.court || m.readyCourt || '') } : {});
+  for (const { kind, m, out } of detect(prev, next, sent, now)) {
+    sentPatch[m.id] = Object.assign({}, sent[m.id] || {}, sentPatch[m.id] || {}, { [kind]: now, out: out ? 1 : 0 }, kind === 'next' ? { court: String(m.court || m.readyCourt || '') } : {});
     for (const side of ['a', 'b']) deliveries.push(makeDelivery(m, kind, side, now, contacts));
   }
   return { sentPatch, deliveries };

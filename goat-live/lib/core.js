@@ -264,6 +264,18 @@ function applyAction(st, act, now) {
       o.rebalance(now);
       return { added: n };
     }
+    case 'setWinner': { // a match ended without a winner → choose it later; the winner then goes into the next round
+      const x = st.done.find((y) => y.id === act.id);
+      if (!x) throw new Error('Match not found');
+      const w = act.winner === 'b' ? 'b' : 'a';
+      if (!x[w]) throw new Error('No player on that side');
+      const dep = x.nx && st.matches.find((y) => y.id === x.nx);
+      if (x.nx && !dep) throw new Error('The next-round match was already decided — Restore it first');
+      if (dep && dep.status !== 'queued') throw new Error('The next-round match is already on court');
+      x.winner = w; x.wo = !!act.wo;
+      advance(st, x, now);
+      break;
+    }
     case 'fillBye': { // a late entry takes a bye: the bye becomes a real match, the next round waits for its winner again
       const name = clean(act.name); if (!name) throw new Error('Type the new player\'s name');
       let x = st.done.find((y) => y.id === act.id && y.bye), fromBoard = false;
@@ -374,7 +386,7 @@ function applyAction(st, act, now) {
       Object.assign(m, { status: 'done', ending: false, endedAt: now, calledAt: null, callAt: null, winner: act.winner === 'a' || act.winner === 'b' ? act.winner : null });
       if (act.wo) m.wo = true; // walkover / no-show: decided without playing
       st.done.unshift(m);
-      advance(st, m, now);
+      if (m.winner) advance(st, m, now); // no winner chosen → the next round keeps waiting ("Winner of #n") until one is chosen on the bracket card
       if (st.settings.autoCall && wasOn) { // hand the freed court to whoever is next (the "be ready" match first)
         const court = freed && !o.courtBusy(freed) ? freed : o.freeCourt();
         const r1 = st.matches.find((x) => x.status === 'queued' && x.readyFor === m.id);
