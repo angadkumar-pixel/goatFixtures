@@ -11,7 +11,7 @@ module.exports = async (req, res) => {
   if (!auth.isAdmin(req.headers.cookie, SECRET)) return json(res, 401, { error: 'Not logged in' });
   try {
     const act = await body(req);
-    for (let attempt = 0; attempt < 4; attempt++) { // retry if another save landed at the same moment
+    for (let attempt = 0; attempt < 8; attempt++) { // retry if another save landed at the same moment (several people in the Control Room)
       const { tree, st } = await fire.load();
       const base = st.rev, now = Date.now();
       if (act.type === 'undo') {
