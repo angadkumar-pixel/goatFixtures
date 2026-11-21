@@ -108,9 +108,9 @@
 
 <dialog id="bulkDlg" aria-labelledby="bulkTitle">
   <div class="sheet-head"><div><h3 id="bulkTitle">Bulk add matches</h3>
-    <p><b>Bracket sheet (first round already paired):</b> <code>Category | Player 1 | WhatsApp 1 | Player 2 | WhatsApp 2</code>, one row per first-round match in bracket order; write <code>Bye</code> for a bye.<br><b>Or a player list:</b> one row per player — <code>Category | Player | WhatsApp</code> (e.g. <code>U13 | Aarav Shah | 98765 43210</code>), in draw order. Byes, rounds and the order of play are worked out for you.<br><b>Or plain matches:</b> <code>Player A | WhatsApp | Player B | WhatsApp</code>, added to the end of the queue.</p></div>
+    <p><b>Bracket workbook:</b> one sheet per category (U11, U13 …), BRACKET 1 rows above BRACKET 2 rows, each first-round match a row: <code>Player 1 | Player 2 | Phone no. - Player 1 | Phone no. - Player 2</code>. <code>Bye</code> or an empty name = bye; empty phone cells are fine. Phone numbers are saved with the draw.<br><b>Or a player list:</b> one row per player — <code>Category | Player | WhatsApp</code> (e.g. <code>U13 | Aarav Shah | 98765 43210</code>), in draw order. Byes, rounds and the order of play are worked out for you.<br><b>Or plain matches:</b> <code>Player A | WhatsApp | Player B | WhatsApp</code>, added to the end of the queue.</p></div>
     <button type="button" class="ghost x" data-close aria-label="Close">✕</button></div>
-  <a class="tpl-link" href="/draw-template.xlsx" download>⬇ Download the Excel template (Category | Player | WhatsApp)</a>
+  <a class="tpl-link" href="/draw-template.xlsx" download>⬇ Download the Excel template (one sheet per category, Bracket 1 / Bracket 2)</a>
   <label class="file-pick">📄 Choose an Excel or CSV file<input type="file" id="bulkFile" accept=".xlsx,.csv,.txt"></label>
   <textarea id="bulkText" rows="7" placeholder="…or paste / type here:&#10;• copied cells from Excel (Player A | Player B columns)&#10;• one per line:  Raj | Amit   or   Raj vs Amit&#10;• a paragraph:  Raj vs Amit, Sana vs Mehak and Priya v Riya"></textarea>
   <div id="bulkPreview" class="bulk-preview"></div>

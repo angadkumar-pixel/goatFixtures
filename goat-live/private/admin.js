@@ -430,7 +430,8 @@
   }
   function renderCats() {
     const cats = catList(), cs = (S.settings && S.settings.catStart) || {}, bar = $('#catBar');
-    bar.hidden = !cats.length;
+    bar.hidden = false;
+    if (!cats.length) { bar.innerHTML = '<button type="button" class="import-big" data-import="1"><b>⇪ IMPORT BRACKETS</b><small>Choose the Excel (one sheet per category) — the brackets appear here</small></button>'; return; }
     bar.innerHTML = cats.map((c) => {
       const left = S.matches.filter((m) => m.cat === c).length, live = S.matches.filter((m) => m.cat === c && active(m)).length;
       const ready = S.matches.filter((m) => m.cat === c && m.hold && m.status === 'queued' && known(m)).length;
@@ -438,7 +439,7 @@
     }).join('');
     if (catDlg.open) renderCatDlg();
   }
-  $('#catBar').addEventListener('click', (e) => { const b = e.target.closest('[data-cat]'); if (!b) return; openCat = b.dataset.cat; $('#catFind').value = ''; renderCatDlg(); if (!catDlg.open) catDlg.showModal(); renderCats(); });
+  $('#catBar').addEventListener('click', (e) => { if (e.target.closest('[data-import]')) { $('#bulkBtn').click(); return; } const b = e.target.closest('[data-cat]'); if (!b) return; openCat = b.dataset.cat; $('#catFind').value = ''; renderCatDlg(); if (!catDlg.open) catDlg.showModal(); renderCats(); });
   // one match card in the bracket: #no · status, both players (winner in gold), one-tap "+ Top 10"
   function card(m, done) {
     const ord = S.matches.filter((x) => !x.hold);

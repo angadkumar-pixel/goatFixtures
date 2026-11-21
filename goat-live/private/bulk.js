@@ -50,8 +50,9 @@ window.GoatBulk = (() => {
     return out;
   }
 
-  // ── minimal .xlsx reader (zip + XML), first worksheet ──
-  async function readXlsx(buf) {
+  // ── minimal .xlsx reader (zip + XML): every worksheet, in workbook order → [{ name, rows }] ──
+  async function readXlsx(buf) { return (await readSheets(buf))[0].rows; } // first worksheet only
+  async function readSheets(buf) {
     const dv = new DataView(buf), td = new TextDecoder();
     let eocd = -1;
     for (let i = buf.byteLength - 22; i >= Math.max(0, buf.byteLength - 70000); i--) if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
@@ -75,10 +76,29 @@ window.GoatBulk = (() => {
     const shared = [];
     const ss = await read('xl/sharedStrings.xml');
     if (ss) for (const si of xml(ss).getElementsByTagName('si')) shared.push([...si.getElementsByTagName('t')].map((t) => t.textContent).join(''));
-    const sheet = files['xl/worksheets/sheet1.xml'] ? 'xl/worksheets/sheet1.xml' : Object.keys(files).filter((n) => /^xl\/worksheets\/sheet\d+\.xml$/.test(n)).sort()[0];
-    if (!sheet) throw new Error('No worksheet found in this file');
+    // sheet names + their files, from workbook.xml and its relationships (so the sheet order is the workbook's)
+    const list = [];
+    const wb = await read('xl/workbook.xml'), rels = await read('xl/_rels/workbook.xml.rels');
+    if (wb && rels) {
+      const target = {};
+      for (const r of xml(rels).getElementsByTagName('Relationship')) target[r.getAttribute('Id')] = r.getAttribute('Target');
+      for (const sh of xml(wb).getElementsByTagName('sheet')) {
+        const idAttr = [...sh.attributes].find((a) => /(^|:)id$/.test(a.name) && a.name !== 'sheetId'), t = idAttr && target[idAttr.value];
+        if (!t) continue;
+        const path = t.startsWith('/') ? t.slice(1) : 'xl/' + t.replace(/^\.\//, '');
+        if (files[path]) list.push({ name: sh.getAttribute('name') || '', path });
+      }
+    }
+    if (!list.length) Object.keys(files).filter((n) => /^xl\/worksheets\/sheet\d+\.xml$/.test(n))
+      .sort((a, b) => parseInt(a.match(/\d+/)[0]) - parseInt(b.match(/\d+/)[0])).forEach((p) => list.push({ name: '', path: p }));
+    if (!list.length) throw new Error('No worksheet found in this file');
+    const out = [];
+    for (const sh of list) out.push({ name: sh.name, rows: sheetRows(xml(await read(sh.path)), shared) });
+    return out;
+  }
+  function sheetRows(doc, shared) {
     const rows = [];
-    for (const r of xml(await read(sheet)).getElementsByTagName('row')) {
+    for (const r of doc.getElementsByTagName('row')) {
       const cells = [];
       for (const c of r.getElementsByTagName('c')) {
         const col = (c.getAttribute('r') || '').replace(/\d+/g, '');
@@ -128,9 +148,8 @@ window.GoatBulk = (() => {
   //   Category | Player 1 | WhatsApp 1 | Player 2 | WhatsApp 2      (or Player 1 | Player 2 | Phone 1 | Phone 2 under a
   //   title row such as "Boys Singles U11 | First Round"). "Bye" on one side = goes straight through. Columns found by header.
   const looseCat = (s) => { const m = String(s || '').match(/\b(girls\s+(?:singles\s+)?)?u\s*-?\s*(\d{1,2})\b/i); return m ? (m[1] ? 'Girls ' : '') + 'U' + Number(m[2]) : ''; };
-  function asPairs(rows) {
-    let col = null, cat = '';
-    const out = {}, order = [];
+  function asPairs(rows, startCat = '', out = {}, order = []) {
+    let col = null, cat = startCat;
     const header = (cells) => {
       const c = { cat: -1, a: -1, b: -1, pa: -1, pb: -1 };
       cells.forEach((x, i) => {
@@ -161,13 +180,20 @@ window.GoatBulk = (() => {
     }
     return order.length ? order.map((c) => ({ cat: c, pairs: out[c] })) : null;
   }
+  // Workbook with one sheet per category: the sheet name ("U11", "Boys U13 …") or the title row inside names it.
+  function pairsFromSheets(sheets) {
+    const out = {}, order = [];
+    sheets.forEach((sh) => asPairs(sh.rows, looseCat(sh.name), out, order));
+    return order.length ? order.map((c) => ({ cat: c, pairs: out[c] })) : null;
+  }
   const textRows = (text) => String(text || '').split(/\r?\n/).map((l) => (l.includes('\t') ? l.split('\t') : l.includes('|') ? l.split('|') : l.split(/\s*[,;]\s*/)));
   // Anything → { draw: [{cat, players}] } for a player list, or { items: [{a, b, …}] } for a list of matches.
   async function readAny(file) {
     const name = file.name.toLowerCase();
     if (name.endsWith('.xls')) throw new Error('Old .xls files are not supported — in Excel use Save As → .xlsx or CSV.');
-    const rows = name.endsWith('.xlsx') ? await readXlsx(await file.arrayBuffer()) : name.endsWith('.csv') ? csvRows(await file.text()) : textRows(await file.text());
-    const draw = asPairs(rows) || asDraw(rows);
+    const sheets = name.endsWith('.xlsx') ? await readSheets(await file.arrayBuffer()) : null;
+    const rows = sheets ? sheets[0].rows : name.endsWith('.csv') ? csvRows(await file.text()) : textRows(await file.text());
+    const draw = (sheets ? pairsFromSheets(sheets) : asPairs(rows)) || asDraw(rows);
     if (draw) return { draw };
     return { items: name.endsWith('.xlsx') || name.endsWith('.csv') ? parseRows(rows) : parseText(rows.map((r) => r.join(' | ')).join('\n')) };
   }
@@ -179,5 +205,5 @@ window.GoatBulk = (() => {
     const text = await file.text();
     return name.endsWith('.csv') ? parseRows(csvRows(text)) : parseText(text);
   }
-  return { parseText, parseRows, readFile, csvRows, readAny, parseAny, asDraw, asPairs, readXlsx };
+  return { parseText, parseRows, readFile, csvRows, readAny, parseAny, asDraw, asPairs, pairsFromSheets, readXlsx, readSheets };
 })();

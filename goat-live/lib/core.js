@@ -6,7 +6,7 @@ const shared = require('../public/js/goat-shared');
 const BOARD_SIZE = 10;
 const uid = () => crypto.randomBytes(5).toString('hex');
 const clean = (s, n = 60) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim().slice(0, n);
-const DEFAULT_SETTINGS = { notify: false, replayMinutes: 10, matchMinutes: 20, restMinutes: 15, courtNames: '', courts: 4, liveToTop: true, adSeconds: 8, callMinutes: 5, autoCall: true, autoStart: true,
+const DEFAULT_SETTINGS = { notify: false, replayMinutes: 10, matchMinutes: 20, restMinutes: 15, courtNames: '1, 2, 3, 5', courts: 4, liveToTop: true, adSeconds: 8, callMinutes: 5, autoCall: true, autoStart: true,
   catStart: { U11: 570, U13: 690, U15: 840, U17: 960 }, autoFill: false }; // category start times (minutes after midnight, India time)
 
 // Knockout fields (draws only): cat 'U13' · rd 'QF' · no 5 (match number in its category) · pa/pb 'Winner of #3' while unknown
@@ -29,6 +29,7 @@ const clearReady = (m) => Object.assign(m, { ready: false, readyFor: null, ready
 // Bring state saved by older versions up to date.
 function migrate(st) {
   st.settings = { ...DEFAULT_SETTINGS, ...(st.settings || {}) };
+  if (!String(st.settings.courtNames || '').trim()) { st.settings.courtNames = DEFAULT_SETTINGS.courtNames; st.settings.courts = 4; } // THE GOAT: courts 1, 2, 3, 5
   st.matches = st.matches || []; st.done = st.done || [];
   st.rev = st.rev || 0; st.replayNonce = st.replayNonce || 0;
   st.matches.forEach((m) => {
