@@ -69,7 +69,8 @@ function detect(prev, next, sent, now = Date.now()) {
   next.matches.forEach((m, i) => {
     if (!m.a || !m.b) return;
     if (m.hold && m.status === 'queued' && !(sent[m.id] && sent[m.id].next)) return; // not in the order of play (top 10) yet
-    const s = sent[m.id] || {};
+    const p0 = before.get(m.id), swapped = p0 && p0.a && p0.b && (p0.a !== m.a || p0.b !== m.b); // a player was changed → messages start fresh
+    const s = swapped ? {} : sent[m.id] || {};
     const toldNext = !!s.next && !(s.later && s.later >= s.next); // a "you're next" is currently standing
     const p = before.get(m.id), startedNow = m.status === 'live' && p && p.status === 'queued'; // started straight from the queue just now
     const beReady = m.status === 'queued' && !!m.ready; // the court's match is finishing → "BE READY · COURT N" (automatic)

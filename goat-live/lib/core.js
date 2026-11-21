@@ -209,7 +209,7 @@ function apply(st, act, now = Date.now()) {
 function applyAction(st, act, now) {
   const o = ops(st);
   const m = act.id ? st.matches.find((x) => x.id === act.id) : null;
-  if (m && m.status === 'bye' && !['showBye', 'move'].includes(act.type)) throw new Error('This is a bye shown on the board — use “Take off the screen”');
+  if (m && m.status === 'bye' && !['showBye', 'move', 'fillBye'].includes(act.type)) throw new Error('This is a bye shown on the board — use “Take off the screen”');
   switch (act.type) {
     case 'add': {
       const list = Array.isArray(act.items) ? act.items : [act];
@@ -263,6 +263,36 @@ function applyAction(st, act, now) {
       const n = o.fill(now, { cat: act.cat ? clean(act.cat, 20) : null, upto: Math.max(1, Math.min(60, Number(act.upto) || BOARD_SIZE)) });
       o.rebalance(now);
       return { added: n };
+    }
+    case 'fillBye': { // a late entry takes a bye: the bye becomes a real match, the next round waits for its winner again
+      const name = clean(act.name); if (!name) throw new Error('Type the new player\'s name');
+      let x = st.done.find((y) => y.id === act.id && y.bye), fromBoard = false;
+      if (!x) { x = st.matches.find((y) => y.id === act.id && y.status === 'bye'); fromBoard = !!x; }
+      if (!x) throw new Error('Bye not found');
+      const dep = x.nx && st.matches.find((y) => y.id === x.nx);
+      if (x.nx && (!dep || dep.status !== 'queued')) throw new Error('The next-round match has already started — too late to change this bye');
+      const empty = x.bye === 'a' ? 'b' : 'a';
+      if (fromBoard) st.matches.splice(st.matches.indexOf(x), 1); else st.done.splice(st.done.indexOf(x), 1);
+      x[empty] = name; x['p' + empty] = ''; x['x' + empty] = false;
+      x.contact = { a: clean(act.phoneA, 20), b: clean(act.phoneB, 20) }; // both sides (the page sends the existing number too)
+      Object.assign(x, { status: 'queued', hold: true, bye: '', wo: false, winner: null, endedAt: null, shownAt: null, court: '', time: null, byeTo: '' });
+      if (dep) { const sd = x.ns === 'b' ? 'b' : 'a'; dep[sd] = ''; dep['x' + sd] = false; if (dep.contact) dep.contact[sd] = ''; if (dep.carry) delete dep.carry[sd]; }
+      st.matches.push(x);
+      break;
+    }
+    case 'swap': { // swap two players between waiting matches (same round): names + their WhatsApp numbers
+      const A = st.matches.find((y) => y.id === act.idA), B = st.matches.find((y) => y.id === act.idB);
+      const sa = act.sideA === 'b' ? 'b' : 'a', sb = act.sideB === 'b' ? 'b' : 'a';
+      if (!A || !B) throw new Error('Match not found');
+      if ([A, B].some((y) => y.status !== 'queued')) throw new Error('Only matches that have not started can be changed');
+      if (A === B && sa === sb) break;
+      [A[sa], B[sb]] = [B[sb], A[sa]];
+      [A, B].forEach((y) => { ['a', 'b'].forEach((k) => { if (y[k]) y['x' + k] = false; }); });
+      if (act.contactA) A.contact = { a: clean(act.contactA.a, 20), b: clean(act.contactA.b, 20) };
+      if (act.contactB && A !== B) B.contact = { a: clean(act.contactB.a, 20), b: clean(act.contactB.b, 20) };
+      [A, B].forEach(clearReady);
+      o.rebalance(now);
+      break;
     }
     case 'showBye': { // put a bye on the board ("X — BYE, through to the Round of 32") or take it off again
       if (act.on === false) {

@@ -300,3 +300,7 @@ dialog.catdlg[open] { display: flex; }
 #sheet .sheet-acts button, #sheet .wo-btn { min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 #sheet .win-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
 #sheet .line { min-width: 0; } #sheet .line select { min-width: 0; flex: 1; }
+#sheet .swap-row { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto; gap: 6px; align-items: center; }
+#sheet .swap-row span { color: var(--gold); font-weight: 700; }
+@media (max-width: 640px) { #sheet .swap-row { grid-template-columns: minmax(0, 1fr); } #sheet .swap-row span { justify-self: center; } }
+.bm .bf { display: grid; gap: 4px; }

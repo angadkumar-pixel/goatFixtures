@@ -144,6 +144,16 @@
         <button type="button" class="big start" data-act="start" ${why ? 'disabled' : ''}>● Start match now</button>
         ${m.hold ? '<button type="button" class="big top10" data-act="top10">＋ Add to the top 10 (order of play)</button>' : '<button type="button" class="big out-big" data-act="untop">↩ Take out of the top 10 (added by mistake)</button>'}${wo}`;
     }
+    if (m.status === 'queued' && m.cat) {
+      const others = S.matches.filter((x) => x.cat === m.cat && x.rd === m.rd && x.status === 'queued')
+        .flatMap((x) => ['a', 'b'].filter((k) => x[k] && !(x.id === m.id)).map((k) => ({ v: x.id + '|' + k, t: `#${x.no} ${x[k]}${x[k === 'a' ? 'b' : 'a'] ? ' (v ' + x[k === 'a' ? 'b' : 'a'] + ')' : ''}` })))
+        .sort((p, q) => p.t.localeCompare(q.t, undefined, { numeric: true }));
+      const mine = ['a', 'b'].filter((k) => m[k]);
+      if (mine.length && others.length) h += `<div class="win-label">Change who plays whom (${esc(RN[m.rd] || m.rd)})</div>
+        <div class="swap-row"><select data-field="swapMine">${mine.map((k) => `<option value="${k}">${esc(m[k])}</option>`).join('')}</select>
+        <span>⇄</span><select data-field="swapWith">${others.map((o) => `<option value="${esc(o.v)}">${esc(o.t)}</option>`).join('')}</select>
+        <button type="button" data-act="swap">Swap</button></div>`;
+    }
     $('#sheetActs').innerHTML = h;
     $('#delBtn').textContent = m.nx ? 'Cancel match (nobody goes through)' : 'Delete match';
     $('#editForm').a.required = !m.pa; $('#editForm').b.required = !m.pb;
@@ -184,6 +194,13 @@ ${m.a} v ${m.b}${m.nx ? '\n\n' + name + ' goes into the next round.' : ''}
       const c = $('#sheetActs [data-field=startCourt]').value;
       await act('live', c ? { id: m.id, live: true, court: c } : { id: m.id, live: true });
       sheet.close();
+    } else if (a === 'swap') {
+      const mine = $('#sheetActs [data-field=swapMine]').value, [oid, os] = $('#sheetActs [data-field=swapWith]').value.split('|');
+      const o = find(oid); if (!o) return;
+      if (!confirm(`Swap ${m[mine]} (#${m.no}) with ${o[os]} (#${o.no})?\n\nThey move with their WhatsApp numbers.`)) return;
+      const cA = Object.assign({ a: '', b: '' }, contacts[m.id] || {}), cB = o.id === m.id ? cA : Object.assign({ a: '', b: '' }, contacts[o.id] || {});
+      const t = cA[mine]; cA[mine] = cB[os]; cB[os] = t;
+      if (await act('swap', { idA: m.id, sideA: mine, idB: o.id, sideB: os, contactA: cA, contactB: cB })) { contacts[m.id] = cA; contacts[o.id] = cB; toast('Players swapped', { action: { label: 'Undo', fn: () => act('undo') }, ms: 8000 }); }
     } else if (a === 'unbye') { if (await act('showBye', { id: m.id, on: false })) { toast('Bye taken off the screen'); sheet.close(); } }
     else if (a === 'top10') { if (await act('queue', { id: m.id, on: true })) { toast('Added to the top 10'); sheet.close(); } }
     else if (a === 'untop') { if (await act('queue', { id: m.id, on: false })) { toast('Taken out of the top 10 (back in its category)'); sheet.close(); } }
@@ -472,8 +489,8 @@ ${m.a} v ${m.b}${m.nx ? '\n\n' + name + ' goes into the next round.' : ''}
   function card(m, done) {
     const ord = S.matches.filter((x) => !x.hold);
     let chip = '', cls = '', foot = '';
-    if (m.status === 'bye') { cls = 'in bye'; chip = 'ON SCREEN'; foot = `<button type="button" class="mini" data-bye="off" data-id="${m.id}">Take off screen</button>`; }
-    else if (done) { cls = m.bye ? 'done bye' : 'done'; foot = m.bye ? `<button type="button" class="mini" data-bye="on" data-id="${m.id}">📺 Show on screen</button>` : `<button type="button" class="mini" data-restore-card="${m.id}">↶ Restore</button>`;
+    if (m.status === 'bye') { cls = 'in bye'; chip = 'ON SCREEN'; foot = `<button type="button" class="mini" data-bye="off" data-id="${m.id}">Take off screen</button><button type="button" class="mini add" data-fillbye="${m.id}">＋ Add player</button>`; }
+    else if (done) { cls = m.bye ? 'done bye' : 'done'; foot = m.bye ? `<button type="button" class="mini" data-bye="on" data-id="${m.id}">📺 Show on screen</button><button type="button" class="mini add" data-fillbye="${m.id}">＋ Add player (replace bye)</button>` : `<button type="button" class="mini" data-restore-card="${m.id}">↶ Restore</button>`;
       chip = m.bye ? 'BYE' : m.winner ? (m.wo ? 'W/O' : 'DONE ✓') : 'NO RESULT';
     } else if (m.status === 'live') { cls = 'live'; chip = `LIVE · C${esc(m.court)}`; }
     else if (m.status === 'called') { cls = 'live'; chip = `C${esc(m.court)} · <span class="cd" data-at="${m.callAt}">${fmtLeft(m.callAt)}</span>`; }
@@ -514,6 +531,20 @@ ${m.a} v ${m.b}${m.nx ? '\n\n' + name + ' goes into the next round.' : ''}
   }
   $('#catFind').addEventListener('input', applyFind);
   $('#catBody').addEventListener('click', async (e) => {
+    const fb = e.target.closest('[data-fillbye]');
+    if (fb) {
+      e.stopPropagation();
+      const m = S.done.concat(S.matches).find((x) => x.id === fb.dataset.fillbye); if (!m) return;
+      const who = m.a || m.b, emptySide = m.bye === 'a' ? 'b' : 'a';
+      const name = (prompt(`Late entry: who plays ${who} instead of the bye?\n\nNew player's name:`) || '').trim(); if (!name) return;
+      let phone = (prompt(`${name}'s WhatsApp number (leave empty if you don't have it):`) || '').trim();
+      while (phone && badPhone(phone)) { phone = (prompt('That is not a 10-digit mobile number. Type it again (or leave empty):', phone) || '').trim(); }
+      if (!confirm(`${m.cat} #${m.no}: ${emptySide === 'a' ? name + ' v ' + who : who + ' v ' + name}\n\nThe bye is replaced by a real match. ${who}'s next-round match waits for this result again.`)) return;
+      const c = Object.assign({ a: '', b: '' }, contacts[m.id] || {}); c[emptySide] = phone;
+      fb.disabled = true;
+      if (await act('fillBye', { id: m.id, name, phoneA: c.a, phoneB: c.b })) toast(`${name} added — ${m.cat} #${m.no} is now a match (add it to the top 10 when ready)`, { ms: 7000 });
+      return;
+    }
     const rc = e.target.closest('[data-restore-card]');
     if (rc) { e.stopPropagation(); const m = S.done.find((x) => x.id === rc.dataset.restoreCard); if (!m) return;
       if (!confirm(`Restore ${m.a} v ${m.b}?
