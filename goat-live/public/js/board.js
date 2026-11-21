@@ -26,8 +26,8 @@
   const RN = { R1: 'First Round', R64: 'Round of 64', R32: 'Round of 32', R16: 'Pre-Quarter', QF: 'Quarter Final', SF: 'Semi Final', F: 'FINAL' };
   // On the board: matches on court first, then the rest in the order they're expected to start.
   function boardOrder(s) {
-    const on = s.matches.filter((m) => m.status === 'live' || m.status === 'called');
-    const wait = s.matches.filter((m) => m.status !== 'live' && m.status !== 'called' && !m.hold).map((m, i) => [m, i])
+    const on = s.matches.filter((m) => m.status === 'live' || m.status === 'called').concat(s.matches.filter((m) => m.status === 'bye')); // a bye being announced shows right after the courts
+    const wait = s.matches.filter((m) => m.status !== 'live' && m.status !== 'called' && m.status !== 'bye' && !m.hold).map((m, i) => [m, i])
       .sort((x, y) => (x[0].time || Infinity) - (y[0].time || Infinity) || x[1] - y[1]).map((x) => x[0]);
     return on.concat(wait);
   }
@@ -182,6 +182,7 @@
     const ct = m.court ? ` · COURT ${esc(m.court)}` : '';
     if (m.status === 'live') return m.ending ? `FINISHING${ct}` : `<span class="dot"></span>LIVE${ct}`;
     if (m.status === 'called') return `COURT ${esc(m.court)} · <span class="cd-label">STARTS IN</span> <span class="cd">${fmtLeft(m.callAt)}</span>`;
+    if (m.status === 'bye') return 'BYE' + (m.byeTo ? ' · THROUGH TO ' + esc((RN[m.byeTo] || m.byeTo).toUpperCase()) : ' · THROUGH');
     if (m.ready) return `BE READY${m.readyCourt ? ' · COURT ' + esc(m.readyCourt) : ''}`;
     if (!m.time) return 'TO BE DECIDED';
     return `<span class="est">EST</span>${esc(GoatLive.fmtTime(m.time))}`; // tentative time

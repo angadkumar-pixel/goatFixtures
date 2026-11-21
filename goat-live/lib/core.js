@@ -152,7 +152,8 @@ function ops(st) {
     return added;
   }
   function unhold(x) { x.hold = false; moveTo(x.id, st.matches.filter((y) => !y.hold && y !== x).length); }
-  function hold(x) { if (x.status !== 'queued') throw new Error('Only a waiting match can be taken out'); unflagReady(x); clearReady(x); x.hold = true; x.delay = 0; moveTo(x.id, st.matches.length); }
+  function hold(x) { if (x.status === 'called') backToQueue(x); // counting down → stop it and take it out
+    if (x.status !== 'queued') throw new Error(x.status === 'live' ? 'This match is being played — end it first' : 'Only a waiting match can be taken out'); unflagReady(x); clearReady(x); x.hold = true; x.delay = 0; moveTo(x.id, st.matches.length); }
   return { fill, unhold, hold, idxOf, liveCount, courtCap, courtNames, capError, moveTo, courtBusy, freeCourt, flagReady, unflagReady, startMatch, backToQueue, callMatch, onBoard, boardError, rebalance, pickNext, notReady };
 }
 
@@ -208,6 +209,7 @@ function apply(st, act, now = Date.now()) {
 function applyAction(st, act, now) {
   const o = ops(st);
   const m = act.id ? st.matches.find((x) => x.id === act.id) : null;
+  if (m && m.status === 'bye' && !['showBye', 'move'].includes(act.type)) throw new Error('This is a bye shown on the board — use “Take off the screen”');
   switch (act.type) {
     case 'add': {
       const list = Array.isArray(act.items) ? act.items : [act];
@@ -261,6 +263,21 @@ function applyAction(st, act, now) {
       const n = o.fill(now, { cat: act.cat ? clean(act.cat, 20) : null, upto: Math.max(1, Math.min(60, Number(act.upto) || BOARD_SIZE)) });
       o.rebalance(now);
       return { added: n };
+    }
+    case 'showBye': { // put a bye on the board ("X — BYE, through to the Round of 32") or take it off again
+      if (act.on === false) {
+        const i = st.matches.findIndex((x) => x.id === act.id && x.status === 'bye');
+        if (i < 0) throw new Error('That bye is not on the board');
+        const [x] = st.matches.splice(i, 1); x.status = 'done'; st.done.unshift(x);
+        break;
+      }
+      const i = st.done.findIndex((x) => x.id === act.id && x.bye);
+      if (i < 0) throw new Error('Bye not found');
+      const [x] = st.done.splice(i, 1);
+      const dep = x.nx && st.matches.find((y) => y.id === x.nx);
+      Object.assign(x, { status: 'bye', hold: false, byeTo: dep ? dep.rd : '' });
+      st.matches.splice(o.liveCount(), 0, x); // right under the matches on court, so it's seen
+      break;
     }
     case 'removeCat': {
       const cat = clean(act.cat, 20); if (!cat) throw new Error('Which category?');

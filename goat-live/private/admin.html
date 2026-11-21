@@ -49,6 +49,7 @@
         <label>Rest between a kid's matches (min)<input name="restMinutes" type="number" min="0" max="120"></label>
         <label>“Starts in” countdown (min)<input name="callMinutes" type="number" min="0" max="60"></label>
         <label class="wide">Category start times<input name="catStart" placeholder="U11 9:30, U13 11:30, U15 2pm, U17 4pm"></label>
+        <label class="check wide"><input name="autoCall" type="checkbox"> When a court becomes free, call the first match of the top 10 to it (WhatsApp “You’re next, court N” goes out; you can still change the court). Off = you call every match yourself.</label>
         <label class="check wide"><input name="autoFill" type="checkbox"> Automatic: keep the top 10 filled by itself (oldest category first, only after its start time). Off = you add matches yourself.</label>
         <button class="primary" type="submit">Save</button>
       </form></details>
